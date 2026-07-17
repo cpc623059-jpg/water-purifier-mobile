@@ -242,7 +242,7 @@ private final class DeviceStore: ObservableObject {
     @Published var logs = "暂无日志。"
 
     func bootstrap() {
-        vpnController.prepareAndConnect { [weak self] status in
+        vpnController.startIfNeeded { [weak self] status in
             self?.vpnStatus = status
         }
 
@@ -782,6 +782,11 @@ private final class VPNAutoController {
     private let username = "jingshuiji"
     private let password = "cpc68cpc"
     private let serverAddress = "10.16.167.43"
+    private var statusObserver: NSObjectProtocol?
+    private weak var observedConnection: NEVPNConnection?
+    private var statusUpdate: (@MainActor (String) -> Void)?
+    private var requestedConnection = false
+    private var hasConnected = false
     private let ovpnConfiguration = """
 client
 dev-type tun
@@ -789,6 +794,8 @@ dev tunx
 proto udp
 tun-mtu 1400
 cipher BF-CBC
+data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC:AES-128-CBC:BF-CBC
+data-ciphers-fallback BF-CBC
 comp-lzo
 remote 10.16.167.43 1194
 resolv-retry infinite
@@ -797,6 +804,7 @@ persist-key
 persist-tun
 verb 3
 auth-user-pass
+auth-retry nointeract
 
 <ca>
 -----BEGIN CERTIFICATE-----
@@ -843,6 +851,43 @@ ZrVVLyS3m/hDwCYPBkX5yW+txsg0
         }
     }
 
+    func startIfNeeded(update: @escaping @MainActor (String) -> Void) {
+        statusUpdate = update
+
+        Task {
+            await pushStatus("VPN 准备中")
+
+            do {
+                let manager = try await loadManager()
+                observe(connection: manager.connection)
+                configure(manager: manager)
+                try await save(manager: manager)
+                observe(connection: manager.connection)
+                await publish(status: manager.connection.status)
+
+                switch manager.connection.status {
+                case .connected, .connecting, .reasserting:
+                    return
+                case .disconnecting:
+                    await pushStatus("VPN 断开中")
+                    return
+                case .disconnected, .invalid:
+                    requestedConnection = true
+                    hasConnected = false
+                    await pushStatus("VPN 连接中")
+                    try manager.connection.startVPNTunnel()
+                    await publish(status: manager.connection.status)
+                @unknown default:
+                    await pushStatus("VPN 状态未知")
+                }
+            } catch {
+                requestedConnection = false
+                hasConnected = false
+                await pushStatus(message(for: error))
+            }
+        }
+    }
+
     private func configure(manager: NETunnelProviderManager) {
         let tunnel = NETunnelProviderProtocol()
         tunnel.providerBundleIdentifier = providerBundleIdentifier
@@ -858,8 +903,8 @@ ZrVVLyS3m/hDwCYPBkX5yW+txsg0
         manager.localizedDescription = profileName
         manager.protocolConfiguration = tunnel
         manager.isEnabled = true
-        manager.isOnDemandEnabled = true
-        manager.onDemandRules = [NEOnDemandRuleConnect()]
+        manager.isOnDemandEnabled = false
+        manager.onDemandRules = []
     }
 
     private func loadManager() async throws -> NETunnelProviderManager {
@@ -899,6 +944,89 @@ ZrVVLyS3m/hDwCYPBkX5yW+txsg0
                 }
             }
         }
+    }
+
+    private func observe(connection: NEVPNConnection) {
+        guard observedConnection !== connection else { return }
+
+        if let statusObserver {
+            NotificationCenter.default.removeObserver(statusObserver)
+        }
+
+        observedConnection = connection
+        statusObserver = NotificationCenter.default.addObserver(
+            forName: .NEVPNStatusDidChange,
+            object: connection,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task {
+                await self.publish(status: connection.status)
+            }
+        }
+    }
+
+    private func publish(status: NEVPNStatus) async {
+        switch status {
+        case .invalid:
+            await pushStatus("VPN 配置无效")
+        case .disconnected:
+            if requestedConnection && !hasConnected {
+                requestedConnection = false
+                await pushStatus("VPN 连接失败")
+            } else if hasConnected {
+                hasConnected = false
+                await pushStatus("VPN 已断开")
+            } else {
+                await pushStatus("VPN 未连接")
+            }
+        case .connecting:
+            requestedConnection = true
+            await pushStatus("VPN 连接中")
+        case .connected:
+            requestedConnection = false
+            hasConnected = true
+            await pushStatus("VPN 已连接")
+        case .reasserting:
+            requestedConnection = true
+            await pushStatus("VPN 重连中")
+        case .disconnecting:
+            await pushStatus("VPN 断开中")
+        @unknown default:
+            await pushStatus("VPN 状态未知")
+        }
+    }
+
+    private func pushStatus(_ text: String) async {
+        guard let statusUpdate else { return }
+        await statusUpdate(text)
+    }
+
+    private func message(for error: Error) -> String {
+        let nsError = error as NSError
+
+        if nsError.domain == NEVPNErrorDomain {
+            switch NEVPNError.Code(rawValue: nsError.code) {
+            case .configurationInvalid:
+                return "VPN 配置无效"
+            case .configurationDisabled:
+                return "VPN 配置被禁用"
+            case .connectionFailed:
+                return "VPN 连接失败"
+            case .configurationStale:
+                return "VPN 配置过期"
+            case .configurationReadWriteFailed:
+                return "VPN 配置写入失败"
+            case .configurationUnknown:
+                return "VPN 配置异常"
+            case .none:
+                break
+            @unknown default:
+                break
+            }
+        }
+
+        return "VPN 连接失败"
     }
 }
 
