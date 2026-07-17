@@ -114,15 +114,7 @@ interface WifiScanResult {
   list?: Array<{ ssid: string; rssi: number; secure: string }>;
 }
 
-interface ConnectionProfile {
-  id: string;
-  name: string;
-  url: string;
-}
-
-const STORAGE_BASE_URL = "purewater.baseUrl";
-const STORAGE_AUTO_REFRESH = "purewater.autoRefresh";
-const STORAGE_PROFILES = "purewater.profiles";
+const STATIC_BASE_URL = "http://192.168.15.119";
 const STATUS_POLL_MS = 5000;
 const FILTER_NAMES = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"];
 const SCREEN_COORD_FIELDS = [
@@ -153,12 +145,9 @@ const SCREEN_FIELD_LABELS: Record<(typeof SCREEN_COORD_FIELDS)[number], string> 
   cbx: "底中 X",
   cby: "底中 Y",
 };
-const defaultProfiles: ConnectionProfile[] = [{ id: "hotspot", name: "设备热点", url: "http://192.168.4.1" }];
 
 const appState = {
-  baseUrl: localStorage.getItem(STORAGE_BASE_URL) ?? "http://192.168.4.1",
-  autoRefresh: localStorage.getItem(STORAGE_AUTO_REFRESH) !== "0",
-  profiles: loadProfiles(),
+  baseUrl: STATIC_BASE_URL,
   filters: [] as FilterData[],
   activeFilterIndex: 0,
   wifiHasSavedPassword: false,
@@ -177,35 +166,22 @@ root.innerHTML = `
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
 
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">Pure Water Mobile</p>
-        <h1 id="appPageTitle">设备总览</h1>
-        <p class="page-copy" id="appPageSubtitle">打开就能看到设备状态、关键数据和最常用的控制入口。</p>
+    <header class="topbar compact-topbar">
+      <div class="brand-block">
+        <p class="eyebrow">净水智控</p>
+        <h1 id="overviewState">连接中</h1>
       </div>
       <div class="topbar-actions">
-        <span class="runtime-pill" id="runtimeMode">${Capacitor.isNativePlatform() ? "原生容器" : "浏览器调试"}</span>
+        <span class="runtime-pill" id="heroNet">--</span>
         <button id="syncBtn" class="glass-icon-button" type="button">刷新</button>
       </div>
     </header>
 
-    <section class="status-banner" id="statusLine" data-tone="warn">正在等待首次同步。</section>
+    <section class="status-banner" id="statusLine" data-tone="warn">正在同步</section>
 
     <main class="app-main">
       <section class="panel active" id="panel-overview">
         <section class="hero-card">
-          <div class="hero-card-head">
-            <div>
-              <div class="device-pill">
-                <span class="device-pill-dot"></span>
-                <span id="heroNet">等待连接</span>
-              </div>
-              <h2 id="overviewState">尚未连接到净水器</h2>
-              <p class="hero-copy">首页做成真正的移动端仪表盘风格，不再是网页后台表单的展开版本。</p>
-            </div>
-            <button id="connectBtn" class="btn primary connect-button" type="button">连接并同步</button>
-          </div>
-
           <div class="hero-grid">
             <article class="hero-metric">
               <span>当前时间</span>
@@ -213,7 +189,7 @@ root.innerHTML = `
             </article>
             <article class="hero-metric">
               <span>设备地址</span>
-              <strong id="overviewAddress">--</strong>
+              <strong id="overviewAddress">192.168.15.119</strong>
             </article>
             <article class="hero-metric">
               <span>纯水判定</span>
@@ -228,37 +204,31 @@ root.innerHTML = `
 
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>快捷控制</h3>
-              <p>大按钮、低认知负担、单手点按舒服一点。</p>
-            </div>
+            <h3>快捷控制</h3>
           </div>
           <div class="action-grid">
             <button class="action-card action-make" data-command="make" type="button">
               <strong>手动制水</strong>
-              <span>立即开始制水</span>
+              <span>开始</span>
             </button>
             <button class="action-card action-wash" data-command="wash" type="button">
               <strong>手动洗膜</strong>
-              <span>执行冲洗动作</span>
+              <span>冲洗</span>
             </button>
             <button class="action-card action-stop" data-command="stop" type="button">
               <strong>停止</strong>
-              <span>停止当前流程</span>
+              <span>结束</span>
             </button>
             <button class="action-card action-reset" data-command="reset" type="button">
               <strong>复位</strong>
-              <span>重置设备状态</span>
+              <span>重置</span>
             </button>
           </div>
         </section>
 
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>实时指标</h3>
-              <p>把关键数据压进手机节奏更顺手的两列卡片布局。</p>
-            </div>
+            <h3>实时指标</h3>
           </div>
           <div class="stats-grid">
             <article class="metric-card metric-featured">
@@ -291,7 +261,7 @@ root.innerHTML = `
             </article>
             <article class="metric-card">
               <span class="metric-label">设备地址</span>
-              <strong id="metricIp">--</strong>
+              <strong id="metricIp">192.168.15.119</strong>
             </article>
             <article class="metric-card">
               <span class="metric-label">当前时间</span>
@@ -316,10 +286,7 @@ root.innerHTML = `
       <section class="panel" id="panel-filters">
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>滤芯管理</h3>
-              <p>做成更像耗材中心的样子，而不是设备后台里的一排输入框。</p>
-            </div>
+            <h3>滤芯</h3>
           </div>
           <div class="filter-list" id="filterList"></div>
           <div class="form-grid">
@@ -337,10 +304,10 @@ root.innerHTML = `
             </label>
           </div>
           <div class="button-row">
-            <button id="filterTodayBtn" class="btn ghost" type="button">设为今天</button>
-            <button id="saveFilterBtn" class="btn primary" type="button">保存当前滤芯</button>
-            <button id="resetFilterBtn" class="btn secondary" type="button">重置当前滤芯</button>
-            <button id="resetAllFiltersBtn" class="btn danger" type="button">重置全部滤芯</button>
+            <button id="filterTodayBtn" class="btn ghost" type="button">今天</button>
+            <button id="saveFilterBtn" class="btn primary" type="button">保存</button>
+            <button id="resetFilterBtn" class="btn secondary" type="button">重置当前</button>
+            <button id="resetAllFiltersBtn" class="btn danger" type="button">全部重置</button>
           </div>
         </section>
       </section>
@@ -348,54 +315,23 @@ root.innerHTML = `
       <section class="panel" id="panel-settings">
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>连接与地址</h3>
-              <p>热点、局域网和 VPN 里的固定地址，统一放在真正的设置页里。</p>
-            </div>
-          </div>
-          <div class="form-grid">
-            <label class="field wide">
-              <span>设备地址</span>
-              <input id="baseUrl" type="text" placeholder="http://192.168.4.1" />
-            </label>
-            <label class="switch-row">
-              <span>自动刷新状态</span>
-              <input id="autoRefresh" type="checkbox" />
-            </label>
-          </div>
-          <div class="button-row">
-            <button id="saveProfileBtn" class="btn secondary" type="button">保存当前地址</button>
-          </div>
-          <label class="field">
-            <span>快捷地址名称</span>
-            <input id="profileName" type="text" placeholder="例如：家里内网 / 设备热点" />
-          </label>
-          <div class="quick-profile-list" id="quickProfileList"></div>
-          <p class="hint" id="connectionHint">浏览器调试时如果设备没有开启 CORS，跨域请求可能失败；安装到手机后会优先使用原生 HTTP 通道。</p>
-        </section>
-
-        <section class="glass-card">
-          <div class="section-head">
-            <div>
-              <h3>运行参数</h3>
-              <p>保持全部控制能力，但交互改成更像 iPhone 设置页。</p>
-            </div>
+            <h3>运行参数</h3>
           </div>
           <div class="form-grid">
             <label class="field">
-              <span>制水超时（分钟）</span>
+              <span>制水超时</span>
               <input id="param-mk" type="number" min="5" max="240" step="5" />
             </label>
             <label class="field">
-              <span>停止延时（秒）</span>
+              <span>停止延时</span>
               <input id="param-dly" type="number" min="0" max="600" step="5" />
             </label>
             <label class="field">
-              <span>洗膜时长（秒）</span>
+              <span>洗膜时长</span>
               <input id="param-wsh" type="number" min="0" max="600" step="5" />
             </label>
             <label class="field">
-              <span>屏幕休眠（分钟）</span>
+              <span>屏幕休眠</span>
               <input id="param-slp" type="number" min="0" max="120" step="5" />
             </label>
             <label class="field">
@@ -403,7 +339,7 @@ root.innerHTML = `
               <input id="param-vol" type="number" min="0" max="30" step="1" />
             </label>
             <label class="field">
-              <span>TDS 报警阈值（ppm）</span>
+              <span>TDS 阈值</span>
               <input id="param-tdth" type="number" min="0" max="999" step="10" />
             </label>
             <label class="switch-row">
@@ -420,52 +356,51 @@ root.innerHTML = `
             </label>
           </div>
           <div class="button-row">
-            <button id="loadParamsBtn" class="btn ghost" type="button">读取参数</button>
-            <button id="saveParamsBtn" class="btn primary" type="button">保存参数</button>
+            <button id="loadParamsBtn" class="btn ghost" type="button">读取</button>
+            <button id="saveParamsBtn" class="btn primary" type="button">保存</button>
           </div>
         </section>
 
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>WiFi 与时间</h3>
-              <p>配网和校时收进一张卡，避免在多个页面之间来回找。</p>
-            </div>
+            <h3>WiFi</h3>
           </div>
           <div class="form-grid">
             <label class="field">
               <span>WiFi 名称</span>
-              <input id="wifiSsid" type="text" placeholder="请输入路由器名称" />
+              <input id="wifiSsid" type="text" placeholder="WiFi" />
             </label>
             <label class="field">
               <span>WiFi 密码</span>
-              <input id="wifiPass" type="password" placeholder="请输入 WiFi 密码" />
+              <input id="wifiPass" type="password" placeholder="密码" />
             </label>
           </div>
           <div class="button-row">
-            <button id="scanWifiBtn" class="btn ghost" type="button">扫描 WiFi</button>
-            <button id="saveWifiBtn" class="btn primary" type="button">保存并重连</button>
+            <button id="scanWifiBtn" class="btn ghost" type="button">扫描</button>
+            <button id="saveWifiBtn" class="btn primary" type="button">保存</button>
           </div>
-          <p class="status-line compact" id="wifiStatus">等待读取 WiFi 配置。</p>
+          <p class="status-line compact" id="wifiStatus">--</p>
           <div class="wifi-list" id="wifiList"></div>
-          <div class="inline-divider"></div>
-          <p class="status-line compact" id="timeState">等待读取时间状态。</p>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-head">
+            <h3>时间</h3>
+          </div>
+          <p class="status-line compact" id="timeState">--</p>
           <label class="field">
-            <span>手动设置时间</span>
+            <span>手动时间</span>
             <input id="manualTime" type="datetime-local" />
           </label>
           <div class="button-row">
-            <button id="syncTimeBtn" class="btn ghost" type="button">网络校时</button>
-            <button id="saveTimeBtn" class="btn primary" type="button">保存手动时间</button>
+            <button id="syncTimeBtn" class="btn ghost" type="button">校时</button>
+            <button id="saveTimeBtn" class="btn primary" type="button">保存</button>
           </div>
         </section>
 
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>语音与缓存</h3>
-              <p>把云语音、TF 卡和缓存状态做成更像移动工具的组合模块。</p>
-            </div>
+            <h3>语音</h3>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -474,7 +409,7 @@ root.innerHTML = `
             </label>
             <label class="field">
               <span>Access Token</span>
-              <input id="ttsToken" type="password" placeholder="留空表示保留已保存 Token" />
+              <input id="ttsToken" type="password" placeholder="Token" />
             </label>
             <label class="field wide">
               <span>Voice</span>
@@ -500,20 +435,17 @@ root.innerHTML = `
             </article>
           </div>
           <div class="button-row">
-            <button id="saveTtsBtn" class="btn primary" type="button">保存语音配置</button>
-            <button id="primeVoiceBtn" class="btn secondary" type="button">开始预缓存</button>
-            <button id="clearVoiceBtn" class="btn danger" type="button">清空缓存</button>
-            <button id="probeVoiceBtn" class="btn ghost" type="button">重新探测 TF 卡</button>
+            <button id="saveTtsBtn" class="btn primary" type="button">保存</button>
+            <button id="primeVoiceBtn" class="btn secondary" type="button">预缓存</button>
+            <button id="clearVoiceBtn" class="btn danger" type="button">清空</button>
+            <button id="probeVoiceBtn" class="btn ghost" type="button">探测 TF</button>
           </div>
-          <p class="status-line compact" id="voiceStatus">等待读取语音状态。</p>
+          <p class="status-line compact" id="voiceStatus">--</p>
         </section>
 
         <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>屏幕设置</h3>
-              <p>保留设备调试能力，但按移动端编辑流程重新收纳。</p>
-            </div>
+            <h3>屏幕</h3>
           </div>
           <div class="form-grid" id="screenFieldGrid"></div>
           <div class="form-grid">
@@ -526,7 +458,7 @@ root.innerHTML = `
               <input id="screenBs" type="text" />
             </label>
             <label class="field">
-              <span>启动时长（秒）</span>
+              <span>启动时长</span>
               <input id="screenBd" type="number" min="0" max="10" step="1" />
             </label>
             <label class="field">
@@ -540,24 +472,21 @@ root.innerHTML = `
             </label>
           </div>
           <div class="button-row">
-            <button id="loadScreenBtn" class="btn ghost" type="button">读取屏幕参数</button>
-            <button id="saveScreenBtn" class="btn primary" type="button">保存屏幕参数</button>
+            <button id="loadScreenBtn" class="btn ghost" type="button">读取</button>
+            <button id="saveScreenBtn" class="btn primary" type="button">保存</button>
           </div>
         </section>
       </section>
 
       <section class="panel" id="panel-logs">
         <section class="glass-card">
-          <div class="section-head">
-            <div>
-              <h3>运行日志</h3>
-              <p>保留排障价值，但视觉上更像 App 内置工具页。</p>
-            </div>
+          <div class="section-head logs-head">
+            <h3>日志</h3>
             <span class="runtime-pill" id="logMeta">日志 0 条</span>
           </div>
           <div class="button-row">
-            <button id="refreshLogsBtn" class="btn ghost" type="button">刷新日志</button>
-            <button id="clearLogsBtn" class="btn danger" type="button">清空日志</button>
+            <button id="refreshLogsBtn" class="btn ghost" type="button">刷新</button>
+            <button id="clearLogsBtn" class="btn danger" type="button">清空</button>
           </div>
           <pre class="log-box" id="logText">暂无日志。</pre>
         </section>
@@ -565,62 +494,32 @@ root.innerHTML = `
     </main>
 
     <nav class="bottom-nav" id="tabs">
-      <button class="tab active" data-target="overview" data-title="设备总览" data-subtitle="查看状态、关键指标和常用控制。">
-        <span>首页</span>
-      </button>
-      <button class="tab" data-target="filters" data-title="滤芯管理" data-subtitle="维护耗材寿命、日期和重置操作。">
-        <span>滤芯</span>
-      </button>
-      <button class="tab" data-target="settings" data-title="设备设置" data-subtitle="连接、参数、WiFi、语音和屏幕配置。">
-        <span>设置</span>
-      </button>
-      <button class="tab" data-target="logs" data-title="运行日志" data-subtitle="查看动作记录、网络状态和诊断信息。">
-        <span>日志</span>
-      </button>
+      <button class="tab active" data-target="overview"><span>首页</span></button>
+      <button class="tab" data-target="filters"><span>滤芯</span></button>
+      <button class="tab" data-target="settings"><span>设置</span></button>
+      <button class="tab" data-target="logs"><span>日志</span></button>
     </nav>
   </div>
 `;
 
 renderScreenFields();
-bindBaseState();
-renderProfiles();
 bindTabs();
 bindActions();
 syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
 
-function bindBaseState(): void {
-  setFieldValue("baseUrl", appState.baseUrl);
-  setCheckboxValue("autoRefresh", appState.autoRefresh);
-}
-
 function bindTabs(): void {
   document.querySelectorAll<HTMLButtonElement>(".tab").forEach((button) => {
-    button.addEventListener("click", () => activateTab(button));
+    button.addEventListener("click", () => {
+      document.querySelectorAll<HTMLButtonElement>(".tab").forEach((item) => item.classList.remove("active"));
+      document.querySelectorAll<HTMLElement>(".panel").forEach((panel) => panel.classList.remove("active"));
+      button.classList.add("active");
+      document.getElementById(`panel-${button.dataset.target}`)?.classList.add("active");
+    });
   });
-}
-
-function activateTab(button: HTMLButtonElement): void {
-  document.querySelectorAll<HTMLButtonElement>(".tab").forEach((item) => item.classList.remove("active"));
-  document.querySelectorAll<HTMLElement>(".panel").forEach((panel) => panel.classList.remove("active"));
-  button.classList.add("active");
-  document.getElementById(`panel-${button.dataset.target}`)?.classList.add("active");
-  setText("appPageTitle", button.dataset.title || "净水器手机控制台");
-  setText("appPageSubtitle", button.dataset.subtitle || "根据固件逻辑重写的手机端控制台。");
 }
 
 function bindActions(): void {
-  getButton("connectBtn").addEventListener("click", () => {
-    saveBaseUrl();
-    syncAll().catch(handleError);
-  });
   getButton("syncBtn").addEventListener("click", () => syncAll().catch(handleError));
-  getButton("saveProfileBtn").addEventListener("click", saveCurrentProfile);
-  getInput("baseUrl").addEventListener("change", saveBaseUrl);
-  getInput("autoRefresh").addEventListener("change", () => {
-    appState.autoRefresh = getCheckboxValue("autoRefresh");
-    localStorage.setItem(STORAGE_AUTO_REFRESH, appState.autoRefresh ? "1" : "0");
-    schedulePolling();
-  });
 
   document.querySelectorAll<HTMLButtonElement>("[data-command]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -628,7 +527,7 @@ function bindActions(): void {
       if (!command) return;
       try {
         await apiRequest("/api/cmd", { query: { c: command } });
-        updateStatusLine(`已发送命令：${command}`, "ok");
+        updateStatusLine(`已发送：${command}`, "ok");
         await loadStatus();
       } catch (error) {
         updateStatusLine(describeError(error), "error");
@@ -668,89 +567,18 @@ function renderScreenFields(): void {
   ).join("");
 }
 
-function saveBaseUrl(): void {
-  appState.baseUrl = normalizeBaseUrl(getFieldValue("baseUrl"));
-  setFieldValue("baseUrl", appState.baseUrl);
-  localStorage.setItem(STORAGE_BASE_URL, appState.baseUrl);
-}
-
-function saveCurrentProfile(): void {
-  saveBaseUrl();
-  const name = getFieldValue("profileName").trim() || `快捷地址 ${appState.profiles.length + 1}`;
-  const url = appState.baseUrl;
-  const existing = appState.profiles.find((profile) => profile.url === url);
-
-  if (existing) {
-    existing.name = name;
-  } else {
-    appState.profiles.push({ id: `${Date.now()}`, name, url });
-  }
-
-  persistProfiles();
-  renderProfiles();
-  setFieldValue("profileName", "");
-  updateStatusLine(`已保存快捷地址：${name}`, "ok");
-}
-
-function renderProfiles(): void {
-  const host = getElement<HTMLDivElement>("quickProfileList");
-  host.innerHTML = appState.profiles
-    .map(
-      (profile) => `
-        <div class="profile-card ${profile.url === appState.baseUrl ? "active" : ""}">
-          <button type="button" class="profile-main" data-profile-id="${escapeAttribute(profile.id)}">
-            <span>${escapeHtml(profile.name)}</span>
-            <strong>${escapeHtml(profile.url)}</strong>
-          </button>
-          <button type="button" class="profile-remove" data-remove-profile-id="${escapeAttribute(profile.id)}">删除</button>
-        </div>
-      `,
-    )
-    .join("");
-
-  host.querySelectorAll<HTMLButtonElement>("[data-profile-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const profile = appState.profiles.find((item) => item.id === button.dataset.profileId);
-      if (!profile) return;
-      appState.baseUrl = profile.url;
-      setFieldValue("baseUrl", profile.url);
-      localStorage.setItem(STORAGE_BASE_URL, profile.url);
-      renderProfiles();
-      syncAll().catch(handleError);
-    });
-  });
-
-  host.querySelectorAll<HTMLButtonElement>("[data-remove-profile-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      appState.profiles = appState.profiles.filter((profile) => profile.id !== button.dataset.removeProfileId);
-      if (!appState.profiles.length) {
-        appState.profiles = [...defaultProfiles];
-      }
-      persistProfiles();
-      renderProfiles();
-    });
-  });
-}
-
-function persistProfiles(): void {
-  localStorage.setItem(STORAGE_PROFILES, JSON.stringify(appState.profiles));
-}
-
 async function syncAll(): Promise<void> {
-  saveBaseUrl();
-  updateStatusLine("正在同步设备数据...", "warn");
+  updateStatusLine("正在同步", "warn");
   await loadStatus();
   await Promise.all([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
-  updateStatusLine("设备数据同步完成。", "ok");
   schedulePolling();
+  updateStatusLine("已同步", "ok");
 }
 
 function schedulePolling(): void {
   if (appState.pollTimer) {
     window.clearInterval(appState.pollTimer);
-    appState.pollTimer = undefined;
   }
-  if (!appState.autoRefresh) return;
   appState.pollTimer = window.setInterval(() => {
     loadStatus().catch(() => undefined);
   }, STATUS_POLL_MS);
@@ -760,7 +588,7 @@ async function loadStatus(): Promise<void> {
   const data = await apiRequest<StatusData>("/api/status");
   setText("metricState", data.state || "--");
   setText("metricNet", data.net || "--");
-  setText("metricIp", data.ip || "--");
+  setText("metricIp", data.ip || "192.168.15.119");
   setText("metricTime", data.time || "--:--");
   setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
   setText("metricRawTds", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
@@ -770,11 +598,10 @@ async function loadStatus(): Promise<void> {
   setText("metricRemain", formatDuration(data.rem));
   setText("metricQuality", formatTdsQuality(data));
   setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
-
-  setText("heroNet", data.net || "设备在线");
-  setText("overviewState", data.state || "设备在线");
+  setText("overviewState", data.state || "在线");
+  setText("heroNet", data.net || "在线");
   setText("overviewTime", data.time || "--:--");
-  setText("overviewAddress", data.ip || appState.baseUrl || "--");
+  setText("overviewAddress", "192.168.15.119");
   setText("overviewQuality", formatTdsQuality(data));
   setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
 }
@@ -806,7 +633,7 @@ async function saveParams(): Promise<void> {
       tdsen: getCheckboxValue("param-tdsen") ? 1 : 0,
     },
   });
-  updateStatusLine("参数已保存。", "ok");
+  updateStatusLine("参数已保存", "ok");
   await loadParams();
 }
 
@@ -875,18 +702,18 @@ async function saveCurrentFilter(): Promise<void> {
   await apiRequest("/api/savefilter", { query: { id: index, date, life } });
   appState.filters[index] = { name, date, life };
   renderFilterCards();
-  updateStatusLine(`滤芯 ${index + 1} 已保存。`, "ok");
+  updateStatusLine(`滤芯 ${index + 1} 已保存`, "ok");
 }
 
 async function resetCurrentFilter(): Promise<void> {
   await apiRequest("/api/resetfilter", { query: { id: appState.activeFilterIndex } });
-  updateStatusLine(`滤芯 ${appState.activeFilterIndex + 1} 已重置。`, "ok");
+  updateStatusLine(`滤芯 ${appState.activeFilterIndex + 1} 已重置`, "ok");
   await loadFilters();
 }
 
 async function resetAllFilters(): Promise<void> {
   await apiRequest("/api/resetallfilters");
-  updateStatusLine("全部滤芯已重置。", "ok");
+  updateStatusLine("全部滤芯已重置", "ok");
   await loadFilters();
 }
 
@@ -896,12 +723,12 @@ async function loadWifi(): Promise<void> {
   appState.wifiHasSavedPassword = Boolean(data.hasPass);
   setFieldValue("wifiSsid", data.ssid || "");
   setFieldValue("wifiPass", "");
-  getInput("wifiPass").placeholder = data.hasPass ? "已保存密码，留空表示保留" : "请输入 WiFi 密码";
-  setStatusMessage("wifiStatus", "WiFi 配置已加载。", "ok");
+  getInput("wifiPass").placeholder = data.hasPass ? "留空保留原密码" : "密码";
+  setStatusMessage("wifiStatus", "WiFi 已读取", "ok");
 }
 
 async function scanWifi(): Promise<void> {
-  setStatusMessage("wifiStatus", "正在扫描 WiFi，请稍候...", "warn");
+  setStatusMessage("wifiStatus", "扫描中", "warn");
   const host = getElement<HTMLDivElement>("wifiList");
   host.innerHTML = "";
   const data = await apiRequest<WifiScanResult>("/api/wifiscan");
@@ -910,12 +737,12 @@ async function scanWifi(): Promise<void> {
     return;
   }
   if (data.status !== "done") {
-    setStatusMessage("wifiStatus", "扫描失败。", "error");
+    setStatusMessage("wifiStatus", "扫描失败", "error");
     return;
   }
   const list = data.list || [];
   if (!list.length) {
-    setStatusMessage("wifiStatus", "未扫描到可用 WiFi。", "warn");
+    setStatusMessage("wifiStatus", "未找到 WiFi", "warn");
     return;
   }
   host.innerHTML = list
@@ -931,10 +758,10 @@ async function scanWifi(): Promise<void> {
   host.querySelectorAll<HTMLButtonElement>("[data-ssid]").forEach((button) => {
     button.addEventListener("click", () => {
       setFieldValue("wifiSsid", button.dataset.ssid || "");
-      setStatusMessage("wifiStatus", `已选择 WiFi：${button.dataset.ssid || ""}`, "ok");
+      setStatusMessage("wifiStatus", `已选择 ${button.dataset.ssid || ""}`, "ok");
     });
   });
-  setStatusMessage("wifiStatus", "扫描完成，点击列表可自动填充。", "ok");
+  setStatusMessage("wifiStatus", "扫描完成", "ok");
 }
 
 async function saveWifi(): Promise<void> {
@@ -942,14 +769,14 @@ async function saveWifi(): Promise<void> {
   const pass = getFieldValue("wifiPass");
   const keep = !pass && appState.wifiHasSavedPassword && ssid === appState.savedWifiSsid ? 1 : 0;
   await apiRequest("/api/savewifi", { method: "POST", form: { ssid, pass, keep } });
-  setStatusMessage("wifiStatus", "WiFi 配置已提交，设备将尝试重连。", "ok");
+  setStatusMessage("wifiStatus", "WiFi 已保存", "ok");
   await loadWifi();
 }
 
 async function loadTime(): Promise<void> {
   const data = await apiRequest<TimeData>("/api/time");
   const stamp = data.valid ? `${data.date || "--"} ${data.time || "--"}` : "--";
-  setStatusMessage("timeState", `当前时间：${stamp} | 来源：${data.source || "--"} | RTC：${data.rtc ? "已连接" : "未连接"}`, "ok");
+  setStatusMessage("timeState", stamp, "ok");
   if (data.datetime) {
     setFieldValue("manualTime", data.datetime);
   }
@@ -957,19 +784,19 @@ async function loadTime(): Promise<void> {
 
 async function syncTime(): Promise<void> {
   await apiRequest("/api/synctime");
-  setStatusMessage("timeState", "网络校时请求已发送。", "warn");
+  setStatusMessage("timeState", "已发送校时", "warn");
   await loadTime();
 }
 
 async function saveTime(): Promise<void> {
   const raw = getFieldValue("manualTime");
   if (!raw) {
-    setStatusMessage("timeState", "请先选择一个时间。", "warn");
+    setStatusMessage("timeState", "请选择时间", "warn");
     return;
   }
   const epoch = Math.floor(new Date(raw).getTime() / 1000);
   await apiRequest("/api/settime", { method: "POST", form: { epoch } });
-  setStatusMessage("timeState", "手动时间已保存。", "ok");
+  setStatusMessage("timeState", "时间已保存", "ok");
   await loadTime();
 }
 
@@ -977,19 +804,13 @@ async function loadTts(): Promise<void> {
   const data = await apiRequest<TtsData>("/api/tts");
   setFieldValue("ttsAppid", data.appid || "");
   setFieldValue("ttsToken", "");
-  getInput("ttsToken").placeholder = data.hasToken ? "已保存 Token，留空表示保留" : "请输入 Token";
+  getInput("ttsToken").placeholder = data.hasToken ? "留空保留" : "Token";
   setFieldValue("ttsVoice", data.voice || "zh_female_wanwanxiaohe_moon_bigtts");
   setText("voiceCacheRatio", `${data.cache || 0} / ${data.total || 0}`);
-  setText(
-    "voiceReadyState",
-    data.ready === false ? "待配置" : (data.cache || 0) >= (data.total || 0) && (data.total || 0) > 0 ? "已完成" : "未完成",
-  );
-  setText(
-    "voiceFlashState",
-    data.flashReady ? "已挂载" : data.flashTaskRunning ? "挂载中" : data.flashQueued ? "已排队" : data.flashResultKnown ? "挂载失败" : "未检测",
-  );
-  setText("voiceEnabledState", data.en === false ? "已关闭" : "已启用");
-  setStatusMessage("voiceStatus", "语音状态已读取。", "ok");
+  setText("voiceReadyState", data.ready === false ? "待配置" : (data.cache || 0) >= (data.total || 0) && (data.total || 0) > 0 ? "已完成" : "未完成");
+  setText("voiceFlashState", data.flashReady ? "已挂载" : data.flashTaskRunning ? "挂载中" : data.flashQueued ? "排队中" : data.flashResultKnown ? "失败" : "未检测");
+  setText("voiceEnabledState", data.en === false ? "关闭" : "启用");
+  setStatusMessage("voiceStatus", "语音已读取", "ok");
 }
 
 async function saveTts(): Promise<void> {
@@ -1003,25 +824,25 @@ async function saveTts(): Promise<void> {
       keep: getFieldValue("ttsToken") ? 0 : 1,
     },
   });
-  setStatusMessage("voiceStatus", "云语音配置已保存。", "ok");
+  setStatusMessage("voiceStatus", "语音已保存", "ok");
   await loadTts();
 }
 
 async function primeVoiceCache(): Promise<void> {
   await apiRequest("/api/voicecache", { method: "POST", query: { c: "prime" } });
-  setStatusMessage("voiceStatus", "语音缓存任务已排队。", "warn");
+  setStatusMessage("voiceStatus", "已开始缓存", "warn");
   await loadTts();
 }
 
 async function clearVoiceCache(): Promise<void> {
   const result = await apiRequest<string>("/api/voicecache", { method: "POST", query: { c: "clear" }, expect: "text" });
-  setStatusMessage("voiceStatus", result || "语音缓存已清空。", "ok");
+  setStatusMessage("voiceStatus", result || "缓存已清空", "ok");
   await loadTts();
 }
 
 async function probeVoiceFlash(): Promise<void> {
   await apiRequest("/api/voiceflash", { method: "POST", query: { c: "probe" } });
-  setStatusMessage("voiceStatus", "TF 卡探测任务已排队。", "warn");
+  setStatusMessage("voiceStatus", "已探测 TF", "warn");
   await loadTts();
 }
 
@@ -1043,30 +864,25 @@ async function saveScreen(): Promise<void> {
       rot: getFieldValue("screenRot"),
     },
   });
-  updateStatusLine("屏幕参数已保存。", "ok");
+  updateStatusLine("屏幕参数已保存", "ok");
   await loadScreen();
 }
 
 async function loadLogs(): Promise<void> {
   const data = await apiRequest<LogsData>("/api/logs");
-  const heap = data.freeHeap ? ` · Heap ${Math.round(data.freeHeap / 1024)} KB` : "";
-  setText("logMeta", `日志 ${data.count || 0} 条${heap}`);
+  const heap = data.freeHeap ? ` · ${Math.round(data.freeHeap / 1024)}KB` : "";
+  setText("logMeta", `日志 ${data.count || 0}${heap}`);
   setText("logText", (data.items || []).join("\n") || "暂无日志。");
 }
 
 async function clearLogs(): Promise<void> {
   await apiRequest("/api/clearlogs");
-  updateStatusLine("日志已清空。", "ok");
+  updateStatusLine("日志已清空", "ok");
   await loadLogs();
 }
 
 async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const baseUrl = normalizeBaseUrl(appState.baseUrl || getFieldValue("baseUrl"));
-  if (!baseUrl) {
-    throw new Error("请先输入设备地址。");
-  }
-
-  const url = new URL(path, `${baseUrl}/`);
+  const url = new URL(path, `${STATIC_BASE_URL}/`);
   Object.entries(options.query || {}).forEach(([key, value]) => {
     if (value === null || value === undefined || value === "") return;
     url.searchParams.set(key, String(value));
@@ -1090,11 +906,9 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
       readTimeout: 12000,
       connectTimeout: 12000,
     });
-
     if (response.status >= 400) {
       throw new Error(`请求失败：HTTP ${response.status}`);
     }
-
     if (expect === "text") {
       return String(response.data ?? "") as T;
     }
@@ -1107,41 +921,13 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
     body: method === "POST" ? body.toString() : undefined,
     cache: "no-store",
   });
-
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`);
   }
-
   if (expect === "text") {
     return (await response.text()) as T;
   }
   return (await response.json()) as T;
-}
-
-function loadProfiles(): ConnectionProfile[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_PROFILES);
-    if (!raw) return [...defaultProfiles];
-    const parsed = JSON.parse(raw) as ConnectionProfile[];
-    const cleaned = parsed
-      .filter((item) => item && item.name && item.url)
-      .map((item) => ({
-        id: item.id || `${Date.now()}-${Math.random()}`,
-        name: item.name,
-        url: normalizeBaseUrl(item.url),
-      }))
-      .filter((item) => item.url);
-    return cleaned.length ? cleaned : [...defaultProfiles];
-  } catch {
-    return [...defaultProfiles];
-  }
-}
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  return withProtocol.replace(/\/+$/, "");
 }
 
 function formatTdsValue(value: number | undefined, enabled: boolean, probePresent: boolean | undefined): string {
@@ -1246,7 +1032,7 @@ function handleError(error: unknown): void {
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : "操作失败，请检查设备连接。";
+  return error instanceof Error ? error.message : "操作失败";
 }
 
 function escapeHtml(value: string): string {
