@@ -129,11 +129,27 @@ code {
   font-weight: 700;
 }
 
-.topbar h1 {
+.app-title {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  line-height: 0.95;
+  font-size: clamp(1.25rem, 3.2vw, 1.6rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+  color: #173456;
+}
+
+.top-state {
+  margin: 8px 0 0;
+  font-size: clamp(1.9rem, 4.8vw, 2.5rem);
+  line-height: 1.08;
   letter-spacing: -0.04em;
+  font-weight: 800;
+  word-break: break-word;
+}
+
+.brand-block {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .page-copy {
@@ -181,6 +197,10 @@ code {
   color: #29496d;
   background: rgba(255, 255, 255, 0.36);
   box-shadow: var(--shadow);
+}
+
+.status-banner:empty {
+  display: none;
 }
 
 .status-banner[data-tone="ok"],
@@ -394,65 +414,6 @@ code {
 
 .metric-featured {
   background: linear-gradient(180deg, rgba(13, 110, 253, 0.18), rgba(255, 255, 255, 0.34));
-}
-
-.metric-wave::before,
-.metric-wave::after {
-  content: "";
-  position: absolute;
-  left: -18%;
-  right: -18%;
-  bottom: -48%;
-  border-radius: 42% 58% 0 0;
-  pointer-events: none;
-}
-
-.metric-wave::before {
-  height: 88%;
-  background: linear-gradient(180deg, rgba(84, 199, 236, 0.04), rgba(84, 199, 236, 0.2));
-  animation: waveDrift 8.8s linear infinite;
-}
-
-.metric-wave::after {
-  height: 72%;
-  background: linear-gradient(180deg, rgba(13, 110, 253, 0.02), rgba(13, 110, 253, 0.14));
-  animation: waveDriftReverse 10.6s linear infinite;
-}
-
-.metric-wave-secondary::before {
-  background: linear-gradient(180deg, rgba(37, 183, 143, 0.03), rgba(37, 183, 143, 0.18));
-}
-
-.metric-wave-secondary::after {
-  background: linear-gradient(180deg, rgba(84, 199, 236, 0.02), rgba(84, 199, 236, 0.12));
-}
-
-@keyframes waveDrift {
-  0% {
-    transform: translate3d(-8%, 0, 0) scaleX(1.02);
-  }
-
-  50% {
-    transform: translate3d(5%, -6%, 0) scaleX(0.98);
-  }
-
-  100% {
-    transform: translate3d(-8%, 0, 0) scaleX(1.02);
-  }
-}
-
-@keyframes waveDriftReverse {
-  0% {
-    transform: translate3d(7%, 0, 0) scaleX(0.98);
-  }
-
-  50% {
-    transform: translate3d(-5%, -8%, 0) scaleX(1.04);
-  }
-
-  100% {
-    transform: translate3d(7%, 0, 0) scaleX(0.98);
-  }
 }
 
 .form-grid {

@@ -169,8 +169,8 @@ root.innerHTML = `
 
     <header class="topbar compact-topbar">
       <div class="brand-block">
-        <p class="eyebrow">净水智控</p>
-        <h1 id="overviewState">连接中</h1>
+        <h1 class="app-title">净水智控</h1>
+        <p class="top-state" id="overviewState">连接中</p>
       </div>
       <div class="topbar-actions">
         <span class="runtime-pill" id="heroNet">--</span>
@@ -189,8 +189,8 @@ root.innerHTML = `
               <strong id="overviewTime">--:--</strong>
             </article>
             <article class="hero-metric">
-              <span>设备地址</span>
-              <strong id="overviewAddress">ik.cccpc.cc:18081</strong>
+              <span>水位状态</span>
+              <strong id="overviewWater">--</strong>
             </article>
             <article class="hero-metric">
               <span>纯水判定</span>
@@ -232,11 +232,11 @@ root.innerHTML = `
             <h3>实时指标</h3>
           </div>
           <div class="stats-grid">
-            <article class="metric-card metric-featured metric-wave">
+            <article class="metric-card metric-featured">
               <span class="metric-label">运行状态</span>
               <strong id="metricState">--</strong>
             </article>
-            <article class="metric-card metric-featured metric-wave metric-wave-secondary">
+            <article class="metric-card metric-featured">
               <span class="metric-label">水位状态</span>
               <strong id="metricWater">--</strong>
             </article>
@@ -259,10 +259,6 @@ root.innerHTML = `
             <article class="metric-card">
               <span class="metric-label">网络</span>
               <strong id="metricNet">--</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">设备地址</span>
-              <strong id="metricIp">ik.cccpc.cc:18081</strong>
             </article>
             <article class="metric-card">
               <span class="metric-label">当前时间</span>
@@ -573,7 +569,7 @@ async function syncAll(): Promise<void> {
   await loadStatus();
   await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
   schedulePolling();
-  updateStatusLine("已同步", "ok");
+  updateStatusLine("", "ok");
 }
 
 function schedulePolling(): void {
@@ -589,7 +585,6 @@ async function loadStatus(): Promise<void> {
   const data = await apiRequest<StatusData>("/api/status");
   setText("metricState", data.state || "--");
   setText("metricNet", data.net || "--");
-  setText("metricIp", data.ip || "ik.cccpc.cc:18081");
   setText("metricTime", data.time || "--:--");
   setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
   setText("metricRawTds", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
@@ -602,7 +597,7 @@ async function loadStatus(): Promise<void> {
   setText("overviewState", data.state || "在线");
   setText("heroNet", data.net || "在线");
   setText("overviewTime", data.time || "--:--");
-  setText("overviewAddress", "ik.cccpc.cc:18081");
+  setText("overviewWater", data.water || "--");
   setText("overviewQuality", formatTdsQuality(data));
   setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
 }
@@ -907,23 +902,26 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
       method,
       headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
       data: body.size ? body.toString() : undefined,
-      responseType: expect === "text" ? "text" : "json",
+      // Some device endpoints return HTTP 200 with an empty body.
+      // Always read native responses as text so we can decide locally whether empty is acceptable.
+      responseType: "text",
       readTimeout: 12000,
       connectTimeout: 12000,
     });
     if (response.status >= 400) {
       throw new Error(`请求失败：HTTP ${response.status}`);
     }
+    const raw = typeof response.data === "string" ? response.data : response.data == null ? "" : JSON.stringify(response.data);
     if (expect === "text") {
-      return String(response.data ?? "") as T;
+      return raw as T;
     }
-    if (response.data === "" || response.data === null || response.data === undefined) {
+    if (!raw) {
       if (allowEmpty) {
         return undefined as T;
       }
       throw new Error("请求失败：空响应");
     }
-    return (typeof response.data === "string" ? JSON.parse(response.data) : response.data) as T;
+    return JSON.parse(raw) as T;
   }
 
   const response = await fetch(url.toString(), {
