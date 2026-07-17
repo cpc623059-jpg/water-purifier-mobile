@@ -22,7 +22,6 @@ targets:
       - path: App
         excludes:
           - Base.lproj/Main.storyboard
-          - public
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.codex.purewater.mobile
