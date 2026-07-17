@@ -2,6 +2,7 @@ import "./styles.css";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
 type ExpectType = "json" | "text";
+type Tone = "ok" | "warn" | "error";
 
 interface RequestOptions {
   method?: "GET" | "POST";
@@ -108,11 +109,22 @@ interface LogsData {
   items?: string[];
 }
 
+interface WifiScanResult {
+  status?: string;
+  list?: Array<{ ssid: string; rssi: number; secure: string }>;
+}
+
+interface ConnectionProfile {
+  id: string;
+  name: string;
+  url: string;
+}
+
 const STORAGE_BASE_URL = "purewater.baseUrl";
 const STORAGE_AUTO_REFRESH = "purewater.autoRefresh";
 const STORAGE_PROFILES = "purewater.profiles";
-const FILTER_NAMES = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"];
 const STATUS_POLL_MS = 5000;
+const FILTER_NAMES = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"];
 const SCREEN_COORD_FIELDS = [
   "ltx",
   "lty",
@@ -127,21 +139,28 @@ const SCREEN_COORD_FIELDS = [
   "cbx",
   "cby",
 ] as const;
-
-interface ConnectionProfile {
-  id: string;
-  name: string;
-  url: string;
-}
-
+const SCREEN_FIELD_LABELS: Record<(typeof SCREEN_COORD_FIELDS)[number], string> = {
+  ltx: "左上 X",
+  lty: "左上 Y",
+  rtx: "右上 X",
+  rty: "右上 Y",
+  mx: "主区 X",
+  my: "主区 Y",
+  lbx: "左下 X",
+  lby: "左下 Y",
+  rbx: "右下 X",
+  rby: "右下 Y",
+  cbx: "底中 X",
+  cby: "底中 Y",
+};
 const defaultProfiles: ConnectionProfile[] = [{ id: "hotspot", name: "设备热点", url: "http://192.168.4.1" }];
 
 const appState = {
   baseUrl: localStorage.getItem(STORAGE_BASE_URL) ?? "http://192.168.4.1",
   autoRefresh: localStorage.getItem(STORAGE_AUTO_REFRESH) !== "0",
+  profiles: loadProfiles(),
   filters: [] as FilterData[],
   activeFilterIndex: 0,
-  profiles: loadProfiles(),
   wifiHasSavedPassword: false,
   savedWifiSsid: "",
   pollTimer: 0 as number | undefined,
@@ -154,138 +173,212 @@ if (!root) {
 }
 
 root.innerHTML = `
-  <div class="shell">
-    <header class="hero">
+  <div class="app-shell">
+    <div class="ambient ambient-a"></div>
+    <div class="ambient ambient-b"></div>
+
+    <header class="topbar">
       <div>
         <p class="eyebrow">Pure Water Mobile</p>
-        <h1>净水器手机控制台</h1>
-        <p class="hero-copy">根据 ESP32 固件接口重写的手机端控制台，覆盖状态查看、手动控制、参数设置、滤芯管理、配网、校时、语音与日志功能。</p>
+        <h1 id="appPageTitle">设备总览</h1>
+        <p class="page-copy" id="appPageSubtitle">打开就能看到设备状态、关键数据和最常用的控制入口。</p>
       </div>
-      <div class="hero-badge">
-        <span class="dot"></span>
-        <span id="heroNet">等待连接</span>
+      <div class="topbar-actions">
+        <span class="runtime-pill" id="runtimeMode">${Capacitor.isNativePlatform() ? "原生容器" : "浏览器调试"}</span>
+        <button id="syncBtn" class="glass-icon-button" type="button">刷新</button>
       </div>
     </header>
 
-    <section class="card connect-card">
-      <div class="card-head">
-        <div>
-          <h2>设备连接</h2>
-          <p>输入净水器 Web 服务地址，例如 <code>http://192.168.4.1</code> 或局域网 IP。</p>
-        </div>
-        <div class="badge" id="runtimeMode">${Capacitor.isNativePlatform() ? "原生模式" : "浏览器模式"}</div>
-      </div>
-      <div class="form-grid connect-grid">
-        <label class="field wide">
-          <span>设备地址</span>
-          <input id="baseUrl" type="text" placeholder="http://192.168.4.1" />
-        </label>
-        <label class="switch-row">
-          <span>自动刷新状态</span>
-          <input id="autoRefresh" type="checkbox" />
-        </label>
-      </div>
-      <div class="button-row">
-        <button id="connectBtn" class="btn primary" type="button">连接并同步</button>
-        <button id="syncBtn" class="btn ghost" type="button">刷新全部数据</button>
-      </div>
-      <div class="quick-profile-box">
-        <div class="quick-profile-toolbar">
-          <label class="field wide">
-            <span>快捷地址名称</span>
-            <input id="profileName" type="text" placeholder="例如：家里内网 / 设备热点" />
-          </label>
-          <button id="saveProfileBtn" class="btn secondary" type="button">保存当前地址</button>
-        </div>
-        <div class="quick-profile-list" id="quickProfileList"></div>
-      </div>
-      <p class="hint" id="connectionHint">浏览器调试时，如果设备未开启 CORS，跨域请求可能失败；打成 iOS App 后会优先使用 Capacitor 原生 HTTP。</p>
-      <p class="hint">你现在这种 OpenVPN 打通家庭局域网的用法，不需要上云；把“家里净水器的内网 IP”保存成一个快捷地址，连上系统 VPN 后直接点它即可。</p>
-      <p class="status-line" id="statusLine">等待首次连接。</p>
-    </section>
+    <section class="status-banner" id="statusLine" data-tone="warn">正在等待首次同步。</section>
 
-    <nav class="tabs" id="tabs">
-      <button class="tab active" data-target="overview">概览</button>
-      <button class="tab" data-target="filters">滤芯</button>
-      <button class="tab" data-target="network">网络与时间</button>
-      <button class="tab" data-target="voice">语音</button>
-      <button class="tab" data-target="display">屏幕</button>
-      <button class="tab" data-target="logs">日志</button>
-    </nav>
-
-    <main class="stack">
+    <main class="app-main">
       <section class="panel active" id="panel-overview">
-        <div class="stats-grid">
-          <article class="metric">
-            <span class="metric-label">运行状态</span>
-            <strong id="metricState">--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">网络</span>
-            <strong id="metricNet">--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">设备地址</span>
-            <strong id="metricIp">--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">当前时间</span>
-            <strong id="metricTime">--:--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">纯水 TDS</span>
-            <strong id="metricTds">-- ppm</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">原水 TDS</span>
-            <strong id="metricRawTds">-- ppm</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">纯水温度</span>
-            <strong id="metricTemp">-- °C</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">原水温度</span>
-            <strong id="metricRawTemp">-- °C</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">水位状态</span>
-            <strong id="metricWater">--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">剩余时间</span>
-            <strong id="metricRemain">--:--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">纯水判定</span>
-            <strong id="metricQuality">--</strong>
-          </article>
-          <article class="metric">
-            <span class="metric-label">信号强度</span>
-            <strong id="metricRssi">-- dBm</strong>
-          </article>
-        </div>
-
-        <section class="card">
-          <div class="card-head">
+        <section class="hero-card">
+          <div class="hero-card-head">
             <div>
-              <h2>快捷控制</h2>
-              <p>对应固件中的 <code>/api/cmd</code> 指令。</p>
+              <div class="device-pill">
+                <span class="device-pill-dot"></span>
+                <span id="heroNet">等待连接</span>
+              </div>
+              <h2 id="overviewState">尚未连接到净水器</h2>
+              <p class="hero-copy">首页做成真正的移动端仪表盘风格，不再是网页后台表单的展开版本。</p>
             </div>
+            <button id="connectBtn" class="btn primary connect-button" type="button">连接并同步</button>
           </div>
-          <div class="button-grid">
-            <button class="btn primary" data-command="make" type="button">手动制水</button>
-            <button class="btn secondary" data-command="wash" type="button">手动洗膜</button>
-            <button class="btn danger" data-command="stop" type="button">停止</button>
-            <button class="btn amber" data-command="reset" type="button">复位</button>
+
+          <div class="hero-grid">
+            <article class="hero-metric">
+              <span>当前时间</span>
+              <strong id="overviewTime">--:--</strong>
+            </article>
+            <article class="hero-metric">
+              <span>设备地址</span>
+              <strong id="overviewAddress">--</strong>
+            </article>
+            <article class="hero-metric">
+              <span>纯水判定</span>
+              <strong id="overviewQuality">--</strong>
+            </article>
+            <article class="hero-metric">
+              <span>信号强度</span>
+              <strong id="overviewSignal">-- dBm</strong>
+            </article>
           </div>
         </section>
 
-        <section class="card">
-          <div class="card-head">
+        <section class="glass-card">
+          <div class="section-head">
             <div>
-              <h2>运行参数</h2>
-              <p>对应固件中的 <code>/api/getparams</code> 与 <code>/api/save</code>。</p>
+              <h3>快捷控制</h3>
+              <p>大按钮、低认知负担、单手点按舒服一点。</p>
+            </div>
+          </div>
+          <div class="action-grid">
+            <button class="action-card action-make" data-command="make" type="button">
+              <strong>手动制水</strong>
+              <span>立即开始制水</span>
+            </button>
+            <button class="action-card action-wash" data-command="wash" type="button">
+              <strong>手动洗膜</strong>
+              <span>执行冲洗动作</span>
+            </button>
+            <button class="action-card action-stop" data-command="stop" type="button">
+              <strong>停止</strong>
+              <span>停止当前流程</span>
+            </button>
+            <button class="action-card action-reset" data-command="reset" type="button">
+              <strong>复位</strong>
+              <span>重置设备状态</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>实时指标</h3>
+              <p>把关键数据压进手机节奏更顺手的两列卡片布局。</p>
+            </div>
+          </div>
+          <div class="stats-grid">
+            <article class="metric-card metric-featured">
+              <span class="metric-label">运行状态</span>
+              <strong id="metricState">--</strong>
+            </article>
+            <article class="metric-card metric-featured">
+              <span class="metric-label">水位状态</span>
+              <strong id="metricWater">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">纯水 TDS</span>
+              <strong id="metricTds">-- ppm</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">原水 TDS</span>
+              <strong id="metricRawTds">-- ppm</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">纯水温度</span>
+              <strong id="metricTemp">-- °C</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">原水温度</span>
+              <strong id="metricRawTemp">-- °C</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">网络</span>
+              <strong id="metricNet">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">设备地址</span>
+              <strong id="metricIp">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">当前时间</span>
+              <strong id="metricTime">--:--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">剩余时间</span>
+              <strong id="metricRemain">--:--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">纯水判定</span>
+              <strong id="metricQuality">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">信号强度</span>
+              <strong id="metricRssi">-- dBm</strong>
+            </article>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-filters">
+        <section class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>滤芯管理</h3>
+              <p>做成更像耗材中心的样子，而不是设备后台里的一排输入框。</p>
+            </div>
+          </div>
+          <div class="filter-list" id="filterList"></div>
+          <div class="form-grid">
+            <label class="field">
+              <span>滤芯名称</span>
+              <input id="filterName" type="text" />
+            </label>
+            <label class="field">
+              <span>安装日期</span>
+              <input id="filterDate" type="date" />
+            </label>
+            <label class="field">
+              <span>寿命（月）</span>
+              <input id="filterLife" type="number" min="1" max="120" step="1" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="filterTodayBtn" class="btn ghost" type="button">设为今天</button>
+            <button id="saveFilterBtn" class="btn primary" type="button">保存当前滤芯</button>
+            <button id="resetFilterBtn" class="btn secondary" type="button">重置当前滤芯</button>
+            <button id="resetAllFiltersBtn" class="btn danger" type="button">重置全部滤芯</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel" id="panel-settings">
+        <section class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>连接与地址</h3>
+              <p>热点、局域网和 VPN 里的固定地址，统一放在真正的设置页里。</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class="field wide">
+              <span>设备地址</span>
+              <input id="baseUrl" type="text" placeholder="http://192.168.4.1" />
+            </label>
+            <label class="switch-row">
+              <span>自动刷新状态</span>
+              <input id="autoRefresh" type="checkbox" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="saveProfileBtn" class="btn secondary" type="button">保存当前地址</button>
+          </div>
+          <label class="field">
+            <span>快捷地址名称</span>
+            <input id="profileName" type="text" placeholder="例如：家里内网 / 设备热点" />
+          </label>
+          <div class="quick-profile-list" id="quickProfileList"></div>
+          <p class="hint" id="connectionHint">浏览器调试时如果设备没有开启 CORS，跨域请求可能失败；安装到手机后会优先使用原生 HTTP 通道。</p>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>运行参数</h3>
+              <p>保持全部控制能力，但交互改成更像 iPhone 设置页。</p>
             </div>
           </div>
           <div class="form-grid">
@@ -327,50 +420,16 @@ root.innerHTML = `
             </label>
           </div>
           <div class="button-row">
-            <button id="loadParamsBtn" class="btn ghost" type="button">重新读取参数</button>
+            <button id="loadParamsBtn" class="btn ghost" type="button">读取参数</button>
             <button id="saveParamsBtn" class="btn primary" type="button">保存参数</button>
           </div>
         </section>
-      </section>
 
-      <section class="panel" id="panel-filters">
-        <section class="card">
-          <div class="card-head">
+        <section class="glass-card">
+          <div class="section-head">
             <div>
-              <h2>滤芯管理</h2>
-              <p>对应固件中的 <code>/api/filters</code>、<code>/api/savefilter</code>、<code>/api/resetfilter</code> 与 <code>/api/resetallfilters</code>。</p>
-            </div>
-          </div>
-          <div class="filter-list" id="filterList"></div>
-          <div class="form-grid">
-            <label class="field">
-              <span>滤芯名称</span>
-              <input id="filterName" type="text" />
-            </label>
-            <label class="field">
-              <span>安装日期</span>
-              <input id="filterDate" type="date" />
-            </label>
-            <label class="field">
-              <span>寿命（月）</span>
-              <input id="filterLife" type="number" min="1" max="120" step="1" />
-            </label>
-          </div>
-          <div class="button-row">
-            <button id="filterTodayBtn" class="btn ghost" type="button">设为今天</button>
-            <button id="saveFilterBtn" class="btn primary" type="button">保存当前滤芯</button>
-            <button id="resetFilterBtn" class="btn secondary" type="button">重置当前滤芯</button>
-            <button id="resetAllFiltersBtn" class="btn danger" type="button">重置全部滤芯</button>
-          </div>
-        </section>
-      </section>
-
-      <section class="panel" id="panel-network">
-        <section class="card">
-          <div class="card-head">
-            <div>
-              <h2>WiFi 配置</h2>
-              <p>对应固件中的 <code>/api/wifi</code>、<code>/api/wifiscan</code> 与 <code>/api/savewifi</code>。</p>
+              <h3>WiFi 与时间</h3>
+              <p>配网和校时收进一张卡，避免在多个页面之间来回找。</p>
             </div>
           </div>
           <div class="form-grid">
@@ -380,7 +439,7 @@ root.innerHTML = `
             </label>
             <label class="field">
               <span>WiFi 密码</span>
-              <input id="wifiPass" type="password" placeholder="请输入密码" />
+              <input id="wifiPass" type="password" placeholder="请输入 WiFi 密码" />
             </label>
           </div>
           <div class="button-row">
@@ -389,35 +448,23 @@ root.innerHTML = `
           </div>
           <p class="status-line compact" id="wifiStatus">等待读取 WiFi 配置。</p>
           <div class="wifi-list" id="wifiList"></div>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <div>
-              <h2>时间设置</h2>
-              <p>对应固件中的 <code>/api/time</code>、<code>/api/settime</code> 与 <code>/api/synctime</code>。</p>
-            </div>
-          </div>
+          <div class="inline-divider"></div>
           <p class="status-line compact" id="timeState">等待读取时间状态。</p>
-          <div class="form-grid">
-            <label class="field">
-              <span>手动设置时间</span>
-              <input id="manualTime" type="datetime-local" />
-            </label>
-          </div>
+          <label class="field">
+            <span>手动设置时间</span>
+            <input id="manualTime" type="datetime-local" />
+          </label>
           <div class="button-row">
             <button id="syncTimeBtn" class="btn ghost" type="button">网络校时</button>
             <button id="saveTimeBtn" class="btn primary" type="button">保存手动时间</button>
           </div>
         </section>
-      </section>
 
-      <section class="panel" id="panel-voice">
-        <section class="card">
-          <div class="card-head">
+        <section class="glass-card">
+          <div class="section-head">
             <div>
-              <h2>云语音配置</h2>
-              <p>对应固件中的 <code>/api/tts</code>。</p>
+              <h3>语音与缓存</h3>
+              <p>把云语音、TF 卡和缓存状态做成更像移动工具的组合模块。</p>
             </div>
           </div>
           <div class="form-grid">
@@ -434,51 +481,38 @@ root.innerHTML = `
               <input id="ttsVoice" type="text" />
             </label>
           </div>
-          <div class="button-row">
-            <button id="saveTtsBtn" class="btn primary" type="button">保存语音配置</button>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <div>
-              <h2>缓存与 TF 卡</h2>
-              <p>对应固件中的 <code>/api/voicecache</code> 与 <code>/api/voiceflash</code>。</p>
-            </div>
-          </div>
           <div class="stats-grid compact-grid">
-            <article class="metric">
+            <article class="metric-card">
               <span class="metric-label">缓存进度</span>
               <strong id="voiceCacheRatio">0 / 0</strong>
             </article>
-            <article class="metric">
+            <article class="metric-card">
               <span class="metric-label">语音状态</span>
               <strong id="voiceReadyState">--</strong>
             </article>
-            <article class="metric">
+            <article class="metric-card">
               <span class="metric-label">TF 卡状态</span>
               <strong id="voiceFlashState">--</strong>
             </article>
-            <article class="metric">
+            <article class="metric-card">
               <span class="metric-label">缓存启用</span>
               <strong id="voiceEnabledState">--</strong>
             </article>
           </div>
           <div class="button-row">
+            <button id="saveTtsBtn" class="btn primary" type="button">保存语音配置</button>
             <button id="primeVoiceBtn" class="btn secondary" type="button">开始预缓存</button>
             <button id="clearVoiceBtn" class="btn danger" type="button">清空缓存</button>
             <button id="probeVoiceBtn" class="btn ghost" type="button">重新探测 TF 卡</button>
           </div>
           <p class="status-line compact" id="voiceStatus">等待读取语音状态。</p>
         </section>
-      </section>
 
-      <section class="panel" id="panel-display">
-        <section class="card">
-          <div class="card-head">
+        <section class="glass-card">
+          <div class="section-head">
             <div>
-              <h2>屏幕参数</h2>
-              <p>对应固件中的 <code>/api/getscreen</code> 与 <code>/api/savescreen</code>。</p>
+              <h3>屏幕设置</h3>
+              <p>保留设备调试能力，但按移动端编辑流程重新收纳。</p>
             </div>
           </div>
           <div class="form-grid" id="screenFieldGrid"></div>
@@ -513,13 +547,13 @@ root.innerHTML = `
       </section>
 
       <section class="panel" id="panel-logs">
-        <section class="card">
-          <div class="card-head">
+        <section class="glass-card">
+          <div class="section-head">
             <div>
-              <h2>运行日志</h2>
-              <p>对应固件中的 <code>/api/logs</code> 与 <code>/api/clearlogs</code>。</p>
+              <h3>运行日志</h3>
+              <p>保留排障价值，但视觉上更像 App 内置工具页。</p>
             </div>
-            <div class="badge" id="logMeta">日志 0 条</div>
+            <span class="runtime-pill" id="logMeta">日志 0 条</span>
           </div>
           <div class="button-row">
             <button id="refreshLogsBtn" class="btn ghost" type="button">刷新日志</button>
@@ -529,6 +563,21 @@ root.innerHTML = `
         </section>
       </section>
     </main>
+
+    <nav class="bottom-nav" id="tabs">
+      <button class="tab active" data-target="overview" data-title="设备总览" data-subtitle="查看状态、关键指标和常用控制。">
+        <span>首页</span>
+      </button>
+      <button class="tab" data-target="filters" data-title="滤芯管理" data-subtitle="维护耗材寿命、日期和重置操作。">
+        <span>滤芯</span>
+      </button>
+      <button class="tab" data-target="settings" data-title="设备设置" data-subtitle="连接、参数、WiFi、语音和屏幕配置。">
+        <span>设置</span>
+      </button>
+      <button class="tab" data-target="logs" data-title="运行日志" data-subtitle="查看动作记录、网络状态和诊断信息。">
+        <span>日志</span>
+      </button>
+    </nav>
   </div>
 `;
 
@@ -540,29 +589,31 @@ bindActions();
 syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
 
 function bindBaseState(): void {
-  setInputValue("baseUrl", appState.baseUrl);
+  setFieldValue("baseUrl", appState.baseUrl);
   setCheckboxValue("autoRefresh", appState.autoRefresh);
 }
 
 function bindTabs(): void {
   document.querySelectorAll<HTMLButtonElement>(".tab").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.querySelectorAll<HTMLButtonElement>(".tab").forEach((item) => item.classList.remove("active"));
-      document.querySelectorAll<HTMLElement>(".panel").forEach((panel) => panel.classList.remove("active"));
-      button.classList.add("active");
-      document.getElementById(`panel-${button.dataset.target}`)?.classList.add("active");
-    });
+    button.addEventListener("click", () => activateTab(button));
   });
+}
+
+function activateTab(button: HTMLButtonElement): void {
+  document.querySelectorAll<HTMLButtonElement>(".tab").forEach((item) => item.classList.remove("active"));
+  document.querySelectorAll<HTMLElement>(".panel").forEach((panel) => panel.classList.remove("active"));
+  button.classList.add("active");
+  document.getElementById(`panel-${button.dataset.target}`)?.classList.add("active");
+  setText("appPageTitle", button.dataset.title || "净水器手机控制台");
+  setText("appPageSubtitle", button.dataset.subtitle || "根据固件逻辑重写的手机端控制台。");
 }
 
 function bindActions(): void {
   getButton("connectBtn").addEventListener("click", () => {
     saveBaseUrl();
-    syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
+    syncAll().catch(handleError);
   });
-  getButton("syncBtn").addEventListener("click", () => {
-    syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
-  });
+  getButton("syncBtn").addEventListener("click", () => syncAll().catch(handleError));
   getButton("saveProfileBtn").addEventListener("click", saveCurrentProfile);
   getInput("baseUrl").addEventListener("change", saveBaseUrl);
   getInput("autoRefresh").addEventListener("change", () => {
@@ -606,11 +657,11 @@ function bindActions(): void {
 }
 
 function renderScreenFields(): void {
-  const host = getDiv("screenFieldGrid");
+  const host = getElement<HTMLDivElement>("screenFieldGrid");
   host.innerHTML = SCREEN_COORD_FIELDS.map(
     (field) => `
       <label class="field">
-        <span>${field.toUpperCase()}</span>
+        <span>${SCREEN_FIELD_LABELS[field]}</span>
         <input id="screen-${field}" type="number" min="0" max="128" step="1" />
       </label>
     `,
@@ -618,44 +669,40 @@ function renderScreenFields(): void {
 }
 
 function saveBaseUrl(): void {
-  appState.baseUrl = normalizeBaseUrl(getInputValue("baseUrl"));
-  setInputValue("baseUrl", appState.baseUrl);
+  appState.baseUrl = normalizeBaseUrl(getFieldValue("baseUrl"));
+  setFieldValue("baseUrl", appState.baseUrl);
   localStorage.setItem(STORAGE_BASE_URL, appState.baseUrl);
 }
 
 function saveCurrentProfile(): void {
   saveBaseUrl();
-  const name = getInputValue("profileName").trim() || `快捷地址 ${appState.profiles.length + 1}`;
+  const name = getFieldValue("profileName").trim() || `快捷地址 ${appState.profiles.length + 1}`;
   const url = appState.baseUrl;
   const existing = appState.profiles.find((profile) => profile.url === url);
 
   if (existing) {
     existing.name = name;
   } else {
-    appState.profiles.push({
-      id: `${Date.now()}`,
-      name,
-      url,
-    });
+    appState.profiles.push({ id: `${Date.now()}`, name, url });
   }
 
   persistProfiles();
   renderProfiles();
-  setInputValue("profileName", "");
+  setFieldValue("profileName", "");
   updateStatusLine(`已保存快捷地址：${name}`, "ok");
 }
 
 function renderProfiles(): void {
-  const host = getDiv("quickProfileList");
+  const host = getElement<HTMLDivElement>("quickProfileList");
   host.innerHTML = appState.profiles
     .map(
       (profile) => `
-        <div class="quick-profile ${profile.url === appState.baseUrl ? "active" : ""}">
-          <button type="button" class="quick-profile-main" data-profile-id="${escapeAttribute(profile.id)}">
+        <div class="profile-card ${profile.url === appState.baseUrl ? "active" : ""}">
+          <button type="button" class="profile-main" data-profile-id="${escapeAttribute(profile.id)}">
             <span>${escapeHtml(profile.name)}</span>
             <strong>${escapeHtml(profile.url)}</strong>
           </button>
-          <button type="button" class="quick-profile-remove" data-remove-profile-id="${escapeAttribute(profile.id)}">删除</button>
+          <button type="button" class="profile-remove" data-remove-profile-id="${escapeAttribute(profile.id)}">删除</button>
         </div>
       `,
     )
@@ -666,7 +713,7 @@ function renderProfiles(): void {
       const profile = appState.profiles.find((item) => item.id === button.dataset.profileId);
       if (!profile) return;
       appState.baseUrl = profile.url;
-      setInputValue("baseUrl", profile.url);
+      setFieldValue("baseUrl", profile.url);
       localStorage.setItem(STORAGE_BASE_URL, profile.url);
       renderProfiles();
       syncAll().catch(handleError);
@@ -675,8 +722,7 @@ function renderProfiles(): void {
 
   host.querySelectorAll<HTMLButtonElement>("[data-remove-profile-id]").forEach((button) => {
     button.addEventListener("click", () => {
-      const id = button.dataset.removeProfileId;
-      appState.profiles = appState.profiles.filter((profile) => profile.id !== id);
+      appState.profiles = appState.profiles.filter((profile) => profile.id !== button.dataset.removeProfileId);
       if (!appState.profiles.length) {
         appState.profiles = [...defaultProfiles];
       }
@@ -724,17 +770,23 @@ async function loadStatus(): Promise<void> {
   setText("metricRemain", formatDuration(data.rem));
   setText("metricQuality", formatTdsQuality(data));
   setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
+
   setText("heroNet", data.net || "设备在线");
+  setText("overviewState", data.state || "设备在线");
+  setText("overviewTime", data.time || "--:--");
+  setText("overviewAddress", data.ip || appState.baseUrl || "--");
+  setText("overviewQuality", formatTdsQuality(data));
+  setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
 }
 
 async function loadParams(): Promise<void> {
   const data = await apiRequest<ParamsData>("/api/getparams");
-  setInputValue("param-mk", String(data.mk ?? 60));
-  setInputValue("param-dly", String(data.dly ?? 30));
-  setInputValue("param-wsh", String(data.wsh ?? 60));
-  setInputValue("param-slp", String(data.slp ?? 0));
-  setInputValue("param-vol", String(data.vol ?? 25));
-  setInputValue("param-tdth", String(data.tdth ?? 100));
+  setFieldValue("param-mk", String(data.mk ?? 60));
+  setFieldValue("param-dly", String(data.dly ?? 30));
+  setFieldValue("param-wsh", String(data.wsh ?? 60));
+  setFieldValue("param-slp", String(data.slp ?? 0));
+  setFieldValue("param-vol", String(data.vol ?? 25));
+  setFieldValue("param-tdth", String(data.tdth ?? 100));
   setCheckboxValue("param-voc", Boolean(data.voc));
   setCheckboxValue("param-buz", Boolean(data.buz));
   setCheckboxValue("param-tdsen", data.tdsen !== false);
@@ -743,12 +795,12 @@ async function loadParams(): Promise<void> {
 async function saveParams(): Promise<void> {
   await apiRequest("/api/save", {
     query: {
-      mk: getInputValue("param-mk"),
-      dly: getInputValue("param-dly"),
-      wsh: getInputValue("param-wsh"),
-      slp: getInputValue("param-slp"),
-      vol: getInputValue("param-vol"),
-      tdth: getInputValue("param-tdth"),
+      mk: getFieldValue("param-mk"),
+      dly: getFieldValue("param-dly"),
+      wsh: getFieldValue("param-wsh"),
+      slp: getFieldValue("param-slp"),
+      vol: getFieldValue("param-vol"),
+      tdth: getFieldValue("param-tdth"),
       voc: getCheckboxValue("param-voc") ? 1 : 0,
       buz: getCheckboxValue("param-buz") ? 1 : 0,
       tdsen: getCheckboxValue("param-tdsen") ? 1 : 0,
@@ -780,7 +832,7 @@ async function loadFilters(): Promise<void> {
 }
 
 function renderFilterCards(): void {
-  const host = getDiv("filterList");
+  const host = getElement<HTMLDivElement>("filterList");
   host.innerHTML = appState.filters
     .map((filter, index) => {
       const active = index === appState.activeFilterIndex ? " active" : "";
@@ -806,28 +858,21 @@ function renderFilterCards(): void {
 function fillActiveFilterEditor(): void {
   const current = appState.filters[appState.activeFilterIndex];
   if (!current) return;
-  setInputValue("filterName", current.name);
-  setInputValue("filterDate", current.date);
-  setInputValue("filterLife", String(current.life));
+  setFieldValue("filterName", current.name);
+  setFieldValue("filterDate", current.date);
+  setFieldValue("filterLife", String(current.life));
 }
 
 function setFilterToday(): void {
-  const today = new Date().toISOString().slice(0, 10);
-  setInputValue("filterDate", today);
+  setFieldValue("filterDate", new Date().toISOString().slice(0, 10));
 }
 
 async function saveCurrentFilter(): Promise<void> {
   const index = appState.activeFilterIndex;
-  const name = getInputValue("filterName").trim() || FILTER_NAMES[index];
-  const date = getInputValue("filterDate");
-  const life = Number(getInputValue("filterLife")) || 6;
-  await apiRequest("/api/savefilter", {
-    query: {
-      id: index,
-      date,
-      life,
-    },
-  });
+  const name = getFieldValue("filterName").trim() || FILTER_NAMES[index];
+  const date = getFieldValue("filterDate");
+  const life = Number(getFieldValue("filterLife")) || 6;
+  await apiRequest("/api/savefilter", { query: { id: index, date, life } });
   appState.filters[index] = { name, date, life };
   renderFilterCards();
   updateStatusLine(`滤芯 ${index + 1} 已保存。`, "ok");
@@ -849,78 +894,64 @@ async function loadWifi(): Promise<void> {
   const data = await apiRequest<WifiData>("/api/wifi");
   appState.savedWifiSsid = data.ssid || "";
   appState.wifiHasSavedPassword = Boolean(data.hasPass);
-  setInputValue("wifiSsid", data.ssid || "");
-  setInputValue("wifiPass", "");
+  setFieldValue("wifiSsid", data.ssid || "");
+  setFieldValue("wifiPass", "");
   getInput("wifiPass").placeholder = data.hasPass ? "已保存密码，留空表示保留" : "请输入 WiFi 密码";
   setStatusMessage("wifiStatus", "WiFi 配置已加载。", "ok");
 }
 
 async function scanWifi(): Promise<void> {
   setStatusMessage("wifiStatus", "正在扫描 WiFi，请稍候...", "warn");
-  const host = getDiv("wifiList");
+  const host = getElement<HTMLDivElement>("wifiList");
   host.innerHTML = "";
-
-  const step = async (): Promise<void> => {
-    const data = await apiRequest<{ status?: string; list?: Array<{ ssid: string; rssi: number; secure: string }> }>("/api/wifiscan");
-    if (data.status === "scanning") {
-      window.setTimeout(() => {
-        scanWifi().catch(handleError);
-      }, 600);
-      return;
-    }
-    if (data.status !== "done") {
-      setStatusMessage("wifiStatus", "扫描失败。", "error");
-      return;
-    }
-    const list = data.list || [];
-    if (!list.length) {
-      setStatusMessage("wifiStatus", "未扫描到可用 WiFi。", "warn");
-      return;
-    }
-    host.innerHTML = list
-      .map(
-        (item) => `
-          <button class="wifi-item" type="button" data-ssid="${escapeAttribute(item.ssid)}">
-            <span>${escapeHtml(item.ssid)}</span>
-            <small>${item.rssi} dBm · ${escapeHtml(item.secure || "未知")}</small>
-          </button>
-        `,
-      )
-      .join("");
-    host.querySelectorAll<HTMLButtonElement>("[data-ssid]").forEach((button) => {
-      button.addEventListener("click", () => {
-        setInputValue("wifiSsid", button.dataset.ssid || "");
-        setStatusMessage("wifiStatus", `已选择 WiFi：${button.dataset.ssid || ""}`, "ok");
-      });
+  const data = await apiRequest<WifiScanResult>("/api/wifiscan");
+  if (data.status === "scanning") {
+    window.setTimeout(() => scanWifi().catch(handleError), 800);
+    return;
+  }
+  if (data.status !== "done") {
+    setStatusMessage("wifiStatus", "扫描失败。", "error");
+    return;
+  }
+  const list = data.list || [];
+  if (!list.length) {
+    setStatusMessage("wifiStatus", "未扫描到可用 WiFi。", "warn");
+    return;
+  }
+  host.innerHTML = list
+    .map(
+      (item) => `
+        <button class="wifi-item" type="button" data-ssid="${escapeAttribute(item.ssid)}">
+          <span>${escapeHtml(item.ssid)}</span>
+          <small>${item.rssi} dBm · ${escapeHtml(item.secure || "未知")}</small>
+        </button>
+      `,
+    )
+    .join("");
+  host.querySelectorAll<HTMLButtonElement>("[data-ssid]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setFieldValue("wifiSsid", button.dataset.ssid || "");
+      setStatusMessage("wifiStatus", `已选择 WiFi：${button.dataset.ssid || ""}`, "ok");
     });
-    setStatusMessage("wifiStatus", "扫描完成，点击列表可自动填充。", "ok");
-  };
-
-  await step();
+  });
+  setStatusMessage("wifiStatus", "扫描完成，点击列表可自动填充。", "ok");
 }
 
 async function saveWifi(): Promise<void> {
-  const ssid = getInputValue("wifiSsid");
-  const pass = getInputValue("wifiPass");
+  const ssid = getFieldValue("wifiSsid");
+  const pass = getFieldValue("wifiPass");
   const keep = !pass && appState.wifiHasSavedPassword && ssid === appState.savedWifiSsid ? 1 : 0;
-  await apiRequest("/api/savewifi", {
-    method: "POST",
-    form: {
-      ssid,
-      pass,
-      keep,
-    },
-  });
+  await apiRequest("/api/savewifi", { method: "POST", form: { ssid, pass, keep } });
   setStatusMessage("wifiStatus", "WiFi 配置已提交，设备将尝试重连。", "ok");
   await loadWifi();
 }
 
 async function loadTime(): Promise<void> {
   const data = await apiRequest<TimeData>("/api/time");
-  const dateTimeText = data.valid ? `${data.date || "--"} ${data.time || "--"}` : "--";
-  setStatusMessage("timeState", `当前时间：${dateTimeText} | 来源：${data.source || "--"} | RTC：${data.rtc ? "已连接" : "未连接"}`, "ok");
+  const stamp = data.valid ? `${data.date || "--"} ${data.time || "--"}` : "--";
+  setStatusMessage("timeState", `当前时间：${stamp} | 来源：${data.source || "--"} | RTC：${data.rtc ? "已连接" : "未连接"}`, "ok");
   if (data.datetime) {
-    setInputValue("manualTime", data.datetime);
+    setFieldValue("manualTime", data.datetime);
   }
 }
 
@@ -931,26 +962,23 @@ async function syncTime(): Promise<void> {
 }
 
 async function saveTime(): Promise<void> {
-  const raw = getInputValue("manualTime");
+  const raw = getFieldValue("manualTime");
   if (!raw) {
     setStatusMessage("timeState", "请先选择一个时间。", "warn");
     return;
   }
   const epoch = Math.floor(new Date(raw).getTime() / 1000);
-  await apiRequest("/api/settime", {
-    method: "POST",
-    form: { epoch },
-  });
+  await apiRequest("/api/settime", { method: "POST", form: { epoch } });
   setStatusMessage("timeState", "手动时间已保存。", "ok");
   await loadTime();
 }
 
 async function loadTts(): Promise<void> {
   const data = await apiRequest<TtsData>("/api/tts");
-  setInputValue("ttsAppid", data.appid || "");
-  setInputValue("ttsToken", "");
+  setFieldValue("ttsAppid", data.appid || "");
+  setFieldValue("ttsToken", "");
   getInput("ttsToken").placeholder = data.hasToken ? "已保存 Token，留空表示保留" : "请输入 Token";
-  setInputValue("ttsVoice", data.voice || "zh_female_wanwanxiaohe_moon_bigtts");
+  setFieldValue("ttsVoice", data.voice || "zh_female_wanwanxiaohe_moon_bigtts");
   setText("voiceCacheRatio", `${data.cache || 0} / ${data.total || 0}`);
   setText(
     "voiceReadyState",
@@ -969,10 +997,10 @@ async function saveTts(): Promise<void> {
     method: "POST",
     form: {
       en: 1,
-      appid: getInputValue("ttsAppid"),
-      token: getInputValue("ttsToken"),
-      voice: getInputValue("ttsVoice"),
-      keep: getInputValue("ttsToken") ? 0 : 1,
+      appid: getFieldValue("ttsAppid"),
+      token: getFieldValue("ttsToken"),
+      voice: getFieldValue("ttsVoice"),
+      keep: getFieldValue("ttsToken") ? 0 : 1,
     },
   });
   setStatusMessage("voiceStatus", "云语音配置已保存。", "ok");
@@ -999,22 +1027,20 @@ async function probeVoiceFlash(): Promise<void> {
 
 async function loadScreen(): Promise<void> {
   const data = await apiRequest<ScreenData>("/api/getscreen");
-  SCREEN_COORD_FIELDS.forEach((field) => {
-    setInputValue(`screen-${field}`, String(data[field] ?? 0));
-  });
-  setInputValue("screenBt", data.bt || "");
-  setInputValue("screenBs", data.bs || "");
-  setInputValue("screenBd", String(data.bd ?? 2));
-  setInputValue("screenRot", String(data.rot ?? 0));
+  SCREEN_COORD_FIELDS.forEach((field) => setFieldValue(`screen-${field}`, String(data[field] ?? 0)));
+  setFieldValue("screenBt", data.bt || "");
+  setFieldValue("screenBs", data.bs || "");
+  setFieldValue("screenBd", String(data.bd ?? 2));
+  setSelectValue("screenRot", String(data.rot ?? 0));
 }
 
 async function saveScreen(): Promise<void> {
   await apiRequest("/api/savescreen", {
     query: {
-      bt: getInputValue("screenBt"),
-      bs: getInputValue("screenBs"),
-      bd: getInputValue("screenBd"),
-      rot: getInputValue("screenRot"),
+      bt: getFieldValue("screenBt"),
+      bs: getFieldValue("screenBs"),
+      bd: getFieldValue("screenBd"),
+      rot: getFieldValue("screenRot"),
     },
   });
   updateStatusLine("屏幕参数已保存。", "ok");
@@ -1023,9 +1049,8 @@ async function saveScreen(): Promise<void> {
 
 async function loadLogs(): Promise<void> {
   const data = await apiRequest<LogsData>("/api/logs");
-  const count = data.count || 0;
-  const heapText = data.freeHeap ? ` · Heap ${Math.round(data.freeHeap / 1024)} KB` : "";
-  setText("logMeta", `日志 ${count} 条${heapText}`);
+  const heap = data.freeHeap ? ` · Heap ${Math.round(data.freeHeap / 1024)} KB` : "";
+  setText("logMeta", `日志 ${data.count || 0} 条${heap}`);
   setText("logText", (data.items || []).join("\n") || "暂无日志。");
 }
 
@@ -1036,7 +1061,7 @@ async function clearLogs(): Promise<void> {
 }
 
 async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const baseUrl = normalizeBaseUrl(appState.baseUrl || getInputValue("baseUrl"));
+  const baseUrl = normalizeBaseUrl(appState.baseUrl || getFieldValue("baseUrl"));
   if (!baseUrl) {
     throw new Error("请先输入设备地址。");
   }
@@ -1049,20 +1074,18 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
 
   const method = options.method || "GET";
   const expect = options.expect || "json";
-  const formBody = new URLSearchParams();
+  const body = new URLSearchParams();
   Object.entries(options.form || {}).forEach(([key, value]) => {
     if (value === null || value === undefined) return;
-    formBody.set(key, String(value));
+    body.set(key, String(value));
   });
 
   if (Capacitor.isNativePlatform()) {
     const response = await CapacitorHttp.request({
       url: url.toString(),
       method,
-      headers: formBody.size
-        ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }
-        : undefined,
-      data: formBody.size ? formBody.toString() : undefined,
+      headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
+      data: body.size ? body.toString() : undefined,
       responseType: expect === "text" ? "text" : "json",
       readTimeout: 12000,
       connectTimeout: 12000,
@@ -1080,10 +1103,8 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
 
   const response = await fetch(url.toString(), {
     method,
-    headers: formBody.size
-      ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }
-      : undefined,
-    body: method === "POST" ? formBody.toString() : undefined,
+    headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
+    body: method === "POST" ? body.toString() : undefined,
     cache: "no-store",
   });
 
@@ -1094,15 +1115,7 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
   if (expect === "text") {
     return (await response.text()) as T;
   }
-
   return (await response.json()) as T;
-}
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  return withProtocol.replace(/\/+$/, "");
 }
 
 function loadProfiles(): ConnectionProfile[] {
@@ -1122,6 +1135,13 @@ function loadProfiles(): ConnectionProfile[] {
   } catch {
     return [...defaultProfiles];
   }
+}
+
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  return withProtocol.replace(/\/+$/, "");
 }
 
 function formatTdsValue(value: number | undefined, enabled: boolean, probePresent: boolean | undefined): string {
@@ -1154,43 +1174,58 @@ function formatDuration(value: number | undefined): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function updateStatusLine(message: string, tone: "ok" | "warn" | "error" = "ok"): void {
+function updateStatusLine(message: string, tone: Tone = "ok"): void {
   setStatusMessage("statusLine", message, tone);
 }
 
-function setStatusMessage(id: string, message: string, tone: "ok" | "warn" | "error"): void {
-  const element = getDiv(id);
+function setStatusMessage(id: string, message: string, tone: Tone): void {
+  const element = getElement<HTMLElement>(id);
   element.textContent = message;
   element.dataset.tone = tone;
 }
 
 function setText(id: string, value: string): void {
   const element = document.getElementById(id);
-  if (!element) return;
-  element.textContent = value;
+  if (element) {
+    element.textContent = value;
+  }
 }
 
-function setInputValue(id: string, value: string): void {
-  const input = getInput(id);
-  input.value = value;
+function setFieldValue(id: string, value: string): void {
+  getField(id).value = value;
+}
+
+function setSelectValue(id: string, value: string): void {
+  getSelect(id).value = value;
 }
 
 function setCheckboxValue(id: string, value: boolean): void {
-  const input = getInput(id);
-  input.checked = value;
+  getInput(id).checked = value;
 }
 
-function getInputValue(id: string): string {
-  return getInput(id).value;
+function getFieldValue(id: string): string {
+  return getField(id).value;
 }
 
 function getCheckboxValue(id: string): boolean {
   return getInput(id).checked;
 }
 
+function getField(id: string): HTMLInputElement | HTMLSelectElement {
+  const element = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+  if (!element) throw new Error(`Field not found: ${id}`);
+  return element;
+}
+
 function getInput(id: string): HTMLInputElement {
   const element = document.getElementById(id) as HTMLInputElement | null;
   if (!element) throw new Error(`Input not found: ${id}`);
+  return element;
+}
+
+function getSelect(id: string): HTMLSelectElement {
+  const element = document.getElementById(id) as HTMLSelectElement | null;
+  if (!element) throw new Error(`Select not found: ${id}`);
   return element;
 }
 
@@ -1200,8 +1235,8 @@ function getButton(id: string): HTMLButtonElement {
   return element;
 }
 
-function getDiv(id: string): HTMLDivElement | HTMLParagraphElement | HTMLPreElement {
-  const element = document.getElementById(id) as HTMLDivElement | HTMLParagraphElement | HTMLPreElement | null;
+function getElement<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id) as T | null;
   if (!element) throw new Error(`Element not found: ${id}`);
   return element;
 }
