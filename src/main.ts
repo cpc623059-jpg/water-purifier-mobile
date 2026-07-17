@@ -173,13 +173,16 @@ root.innerHTML = `
     <div class="ambient ambient-b"></div>
 
     <header class="topbar compact-topbar">
+      <div class="brand-emblem" aria-hidden="true"></div>
       <div class="brand-block">
-        <p class="app-title">净水智控</p>
-        <h1 class="top-state" id="overviewState">待机</h1>
-      </div>
-      <div class="topbar-actions">
-        <span class="runtime-pill online-pill" id="heroNet">在线</span>
-        <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
+        <div class="brand-head">
+          <p class="app-title">净水智控</p>
+          <span class="runtime-pill online-pill" id="heroNet">在线</span>
+        </div>
+        <div class="brand-bottom">
+          <h1 class="top-state" id="overviewState">待机</h1>
+          <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
+        </div>
       </div>
     </header>
 
@@ -190,57 +193,49 @@ root.innerHTML = `
     <main class="app-main">
       <section class="panel active" id="panel-overview">
         <section class="hero-card hero-panel">
-          <div class="section-head hero-head">
-            <div>
+          <div class="hero-topline">
+            <span class="hero-chip" id="metricState">待机</span>
+            <span class="hero-chip secondary" id="metricRssi">-- dBm</span>
+          </div>
+
+          <div class="hero-layout">
+            <div class="hero-core">
               <p class="hero-kicker">纯水品质</p>
               <h2 class="hero-reading" id="metricTds">-- ppm</h2>
               <p class="hero-reading-sub" id="metricRawTds">原水 -- ppm</p>
-            </div>
-            <div class="hero-signal-stack">
-              <span class="runtime-pill hero-signal-chip" id="metricState">待机</span>
-              <span class="runtime-pill hero-signal-chip secondary" id="metricRssi">-- dBm</span>
-            </div>
-          </div>
 
-          <div class="hero-grid">
-            <article class="hero-metric">
-              <span>当前时间</span>
-              <strong id="overviewTime">--:--</strong>
-            </article>
-            <article class="hero-metric">
-              <span>剩余时间</span>
-              <strong id="heroRemain">--:--</strong>
-            </article>
-            <article class="hero-metric">
-              <span>纯水判定</span>
-              <strong id="overviewQuality">--</strong>
-            </article>
-            <article class="hero-metric">
-              <span>水位状态</span>
-              <strong id="overviewWater">--</strong>
-            </article>
-          </div>
+              <div class="hero-mini-row">
+                <article class="hero-mini-card">
+                  <span>当前时间</span>
+                  <strong id="overviewTime">--:--</strong>
+                </article>
+                <article class="hero-mini-card">
+                  <span>纯水判定</span>
+                  <strong id="overviewQuality">--</strong>
+                </article>
+              </div>
+            </div>
 
-          <div class="hero-pill-row">
-            <article class="hero-pill">
-              <span>连接方式</span>
-              <strong id="overviewAccess">--</strong>
-            </article>
-            <article class="hero-pill">
-              <span>网络状态</span>
-              <strong id="metricNet">--</strong>
-            </article>
-            <article class="hero-pill">
-              <span>信号强度</span>
-              <strong id="overviewSignal">-- dBm</strong>
-            </article>
+            <div class="hero-side-stack">
+              <article class="hero-side-card">
+                <span>剩余时间</span>
+                <strong id="heroRemain">--:--</strong>
+              </article>
+              <article class="hero-side-card accent">
+                <span>水位状态</span>
+                <strong id="overviewWater">--</strong>
+              </article>
+              <article class="hero-side-card">
+                <span>连接方式</span>
+                <strong id="overviewAccess">--</strong>
+              </article>
+            </div>
           </div>
         </section>
 
         <section class="glass-card">
           <div class="section-head">
             <h3>快捷控制</h3>
-            <p>常用操作</p>
           </div>
           <div class="action-grid">
             <button class="action-card action-make" data-command="make" type="button">
@@ -262,59 +257,26 @@ root.innerHTML = `
           </div>
         </section>
 
-        <section class="glass-card">
+        <section class="glass-card detail-panel">
           <div class="section-head">
-            <h3>实时指标</h3>
-            <p>核心状态一眼看清</p>
+            <h3>运行细节</h3>
           </div>
-          <div class="stats-grid">
-            <article class="metric-card metric-featured">
-              <span class="metric-label">运行状态</span>
-              <strong id="metricState">--</strong>
-            </article>
-            <article class="metric-card metric-featured">
-              <span class="metric-label">水位状态</span>
-              <strong id="metricWater">--</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">纯水 TDS</span>
-              <strong id="metricTds">-- ppm</strong>
-            </article>
-            <article class="metric-card">
+          <div class="detail-grid">
+            <article class="detail-card">
               <span class="metric-label">原水 TDS</span>
               <strong id="metricRawTdsCard">-- ppm</strong>
             </article>
-            <article class="metric-card">
+            <article class="detail-card">
               <span class="metric-label">纯水温度</span>
               <strong id="metricTemp">-- °C</strong>
             </article>
-            <article class="metric-card">
+            <article class="detail-card">
               <span class="metric-label">原水温度</span>
               <strong id="metricRawTemp">-- °C</strong>
             </article>
-            <article class="metric-card">
-              <span class="metric-label">网络</span>
+            <article class="detail-card detail-card-accent">
+              <span class="metric-label">网络状态</span>
               <strong id="metricNet">--</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">当前时间</span>
-              <strong id="metricTime">--:--</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">接入方式</span>
-              <strong id="metricAccess">--</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">剩余时间</span>
-              <strong id="metricRemain">--:--</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">信号强度</span>
-              <strong id="metricRssi">-- dBm</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">纯水判定</span>
-              <strong id="metricQuality">--</strong>
             </article>
           </div>
         </section>
@@ -583,16 +545,13 @@ function bindActions(): void {
       if (!command) return;
       try {
         const commandLabel = COMMAND_LABELS[command] || command;
+        button.disabled = true;
         await apiRequest("/api/cmd", { query: { c: command }, allowEmpty: true });
-        updateStatusLine(`已发送 ${commandLabel}`, "ok");
-        await sleep(280);
-        try {
-          await loadStatus();
-        } catch {
-          updateStatusLine(`${commandLabel} 已发送，状态稍后刷新`, "warn");
-        }
+        await refreshStatusAfterCommand();
       } catch (error) {
         updateStatusLine(describeError(error), "error");
+      } finally {
+        button.disabled = false;
       }
     });
   });
@@ -642,6 +601,19 @@ async function syncAll(): Promise<void> {
   updateStatusLine("", "ok");
 }
 
+async function refreshStatusAfterCommand(): Promise<void> {
+  const delays = [240, 520, 880];
+  for (const delay of delays) {
+    await sleep(delay);
+    try {
+      await loadStatus();
+      return;
+    } catch {
+      continue;
+    }
+  }
+}
+
 function schedulePolling(): void {
   if (appState.pollTimer) {
     window.clearInterval(appState.pollTimer);
@@ -654,7 +626,6 @@ function schedulePolling(): void {
 async function loadStatus(): Promise<void> {
   const data = await apiRequest<StatusData>("/api/status");
   const accessMode = formatAccessMode(data);
-  const deviceAddress = formatDeviceAddress(data);
   setText("metricState", data.state || "--");
   setText("metricNet", data.net || "--");
   setText("metricTime", data.time || "--:--");
@@ -1101,8 +1072,9 @@ function setStatusMessage(id: string, message: string, tone: Tone): void {
   const element = getElement<HTMLElement>(id);
   element.dataset.tone = tone;
   if (id === "statusLine") {
-    setText("statusText", message);
-    element.hidden = !message;
+    const shouldShow = Boolean(message) && tone !== "ok";
+    setText("statusText", shouldShow ? message : "");
+    element.hidden = !shouldShow;
     return;
   }
   element.textContent = message;
