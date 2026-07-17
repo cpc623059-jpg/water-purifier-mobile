@@ -117,6 +117,12 @@ interface WifiScanResult {
 
 const STATIC_BASE_URL = "http://ik.cccpc.cc:18081";
 const STATUS_POLL_MS = 5000;
+const COMMAND_LABELS: Record<string, string> = {
+  make: "手动制水",
+  wash: "手动冲洗",
+  stop: "停止运行",
+  reset: "设备复位",
+};
 const FILTER_NAMES = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"];
 const SCREEN_COORD_FIELDS = [
   "ltx",
@@ -168,34 +174,63 @@ root.innerHTML = `
 
     <header class="topbar compact-topbar">
       <div class="brand-block">
-        <h1 class="app-title">净水智控</h1>
-        <p class="top-state" id="overviewState">连接中</p>
+        <p class="app-title">净水智控</p>
+        <h1 class="top-state" id="overviewState">待机</h1>
       </div>
       <div class="topbar-actions">
-        <span class="runtime-pill" id="heroNet">--</span>
-        <button id="syncBtn" class="glass-icon-button" type="button">刷新</button>
+        <span class="runtime-pill online-pill" id="heroNet">在线</span>
+        <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
       </div>
     </header>
 
-    <section class="status-banner" id="statusLine" data-tone="warn">正在同步</section>
+    <section class="status-banner" id="statusLine" data-tone="warn">
+      <strong class="status-text" id="statusText">正在同步</strong>
+    </section>
 
     <main class="app-main">
       <section class="panel active" id="panel-overview">
-        <section class="hero-card">
+        <section class="hero-card hero-panel">
+          <div class="section-head hero-head">
+            <div>
+              <p class="hero-kicker">纯水品质</p>
+              <h2 class="hero-reading" id="metricTds">-- ppm</h2>
+              <p class="hero-reading-sub" id="metricRawTds">原水 -- ppm</p>
+            </div>
+            <div class="hero-signal-stack">
+              <span class="runtime-pill hero-signal-chip" id="metricState">待机</span>
+              <span class="runtime-pill hero-signal-chip secondary" id="metricRssi">-- dBm</span>
+            </div>
+          </div>
+
           <div class="hero-grid">
             <article class="hero-metric">
               <span>当前时间</span>
               <strong id="overviewTime">--:--</strong>
             </article>
             <article class="hero-metric">
-              <span>水位状态</span>
-              <strong id="overviewWater">--</strong>
+              <span>剩余时间</span>
+              <strong id="heroRemain">--:--</strong>
             </article>
             <article class="hero-metric">
               <span>纯水判定</span>
               <strong id="overviewQuality">--</strong>
             </article>
             <article class="hero-metric">
+              <span>水位状态</span>
+              <strong id="overviewWater">--</strong>
+            </article>
+          </div>
+
+          <div class="hero-pill-row">
+            <article class="hero-pill">
+              <span>连接方式</span>
+              <strong id="overviewAccess">--</strong>
+            </article>
+            <article class="hero-pill">
+              <span>网络状态</span>
+              <strong id="metricNet">--</strong>
+            </article>
+            <article class="hero-pill">
               <span>信号强度</span>
               <strong id="overviewSignal">-- dBm</strong>
             </article>
@@ -205,6 +240,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>快捷控制</h3>
+            <p>常用操作</p>
           </div>
           <div class="action-grid">
             <button class="action-card action-make" data-command="make" type="button">
@@ -229,6 +265,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>实时指标</h3>
+            <p>核心状态一眼看清</p>
           </div>
           <div class="stats-grid">
             <article class="metric-card metric-featured">
@@ -245,7 +282,7 @@ root.innerHTML = `
             </article>
             <article class="metric-card">
               <span class="metric-label">原水 TDS</span>
-              <strong id="metricRawTds">-- ppm</strong>
+              <strong id="metricRawTdsCard">-- ppm</strong>
             </article>
             <article class="metric-card">
               <span class="metric-label">纯水温度</span>
@@ -264,16 +301,20 @@ root.innerHTML = `
               <strong id="metricTime">--:--</strong>
             </article>
             <article class="metric-card">
+              <span class="metric-label">接入方式</span>
+              <strong id="metricAccess">--</strong>
+            </article>
+            <article class="metric-card">
               <span class="metric-label">剩余时间</span>
               <strong id="metricRemain">--:--</strong>
             </article>
             <article class="metric-card">
-              <span class="metric-label">纯水判定</span>
-              <strong id="metricQuality">--</strong>
-            </article>
-            <article class="metric-card">
               <span class="metric-label">信号强度</span>
               <strong id="metricRssi">-- dBm</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">纯水判定</span>
+              <strong id="metricQuality">--</strong>
             </article>
           </div>
         </section>
@@ -283,6 +324,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>滤芯管理</h3>
+            <p>更换周期与寿命状态</p>
           </div>
           <div class="filter-list" id="filterList"></div>
           <div class="form-grid">
@@ -312,6 +354,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>运行参数</h3>
+            <p>运行节奏与阈值设定</p>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -360,6 +403,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>WiFi</h3>
+            <p>无线网络与扫描列表</p>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -382,6 +426,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>时间</h3>
+            <p>同步 NTP 或手动指定</p>
           </div>
           <p class="status-line compact" id="timeState">--</p>
           <label class="field">
@@ -397,6 +442,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>语音</h3>
+            <p>播报引擎与缓存状态</p>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -442,6 +488,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>屏幕</h3>
+            <p>坐标与开机文案</p>
           </div>
           <div class="form-grid" id="screenFieldGrid"></div>
           <div class="form-grid">
@@ -478,6 +525,7 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head logs-head">
             <h3>运行日志</h3>
+            <p>查看设备最近状态变化</p>
             <span class="runtime-pill" id="logMeta">日志 0 条</span>
           </div>
           <div class="button-row">
@@ -534,9 +582,15 @@ function bindActions(): void {
       const command = button.dataset.command;
       if (!command) return;
       try {
+        const commandLabel = COMMAND_LABELS[command] || command;
         await apiRequest("/api/cmd", { query: { c: command }, allowEmpty: true });
-        updateStatusLine(`已发送：${command}`, "ok");
-        await loadStatus();
+        updateStatusLine(`已发送 ${commandLabel}`, "ok");
+        await sleep(280);
+        try {
+          await loadStatus();
+        } catch {
+          updateStatusLine(`${commandLabel} 已发送，状态稍后刷新`, "warn");
+        }
       } catch (error) {
         updateStatusLine(describeError(error), "error");
       }
@@ -578,8 +632,13 @@ function renderScreenFields(): void {
 async function syncAll(): Promise<void> {
   updateStatusLine("正在同步", "warn");
   await loadStatus();
-  await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
+  const results = await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
   schedulePolling();
+  const failedCount = results.filter((result) => result.status === "rejected").length;
+  if (failedCount > 0) {
+    updateStatusLine(`部分同步完成，${failedCount} 项需要重试`, "warn");
+    return;
+  }
   updateStatusLine("", "ok");
 }
 
@@ -594,23 +653,29 @@ function schedulePolling(): void {
 
 async function loadStatus(): Promise<void> {
   const data = await apiRequest<StatusData>("/api/status");
+  const accessMode = formatAccessMode(data);
+  const deviceAddress = formatDeviceAddress(data);
   setText("metricState", data.state || "--");
   setText("metricNet", data.net || "--");
   setText("metricTime", data.time || "--:--");
   setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
-  setText("metricRawTds", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
+  setText("metricRawTds", `原水 ${formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe)}`);
+  setText("metricRawTdsCard", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
   setText("metricTemp", formatTempValue(data.tempPure ?? data.temp, data.tempen !== false, data.tempPureProbe));
   setText("metricRawTemp", formatTempValue(data.tempRaw, data.tempen !== false, data.tempRawProbe));
   setText("metricWater", data.water || "--");
   setText("metricRemain", formatDuration(data.rem));
   setText("metricQuality", formatTdsQuality(data));
+  setText("metricAccess", accessMode);
   setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
-  setText("overviewState", data.state || "在线");
-  setText("heroNet", data.net || "在线");
+  setText("overviewState", data.state || "待机");
+  setText("heroNet", formatOnlineLabel(data));
   setText("overviewTime", data.time || "--:--");
   setText("overviewWater", data.water || "--");
   setText("overviewQuality", formatTdsQuality(data));
+  setText("overviewAccess", accessMode);
   setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
+  setText("heroRemain", formatDuration(data.rem));
 }
 
 async function loadParams(): Promise<void> {
@@ -924,13 +989,7 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
     if (expect === "text") {
       return raw as T;
     }
-    if (!raw) {
-      if (allowEmpty) {
-        return undefined as T;
-      }
-      throw new Error("请求失败：空响应");
-    }
-    return JSON.parse(raw) as T;
+    return parseJsonPayload<T>(raw, allowEmpty);
   }
 
   const response = await fetch(url.toString(), {
@@ -945,14 +1004,7 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
   if (expect === "text") {
     return (await response.text()) as T;
   }
-  const raw = await response.text();
-  if (!raw) {
-    if (allowEmpty) {
-      return undefined as T;
-    }
-    throw new Error("请求失败：空响应");
-  }
-  return JSON.parse(raw) as T;
+  return parseJsonPayload<T>(await response.text(), allowEmpty);
 }
 
 function formatTdsValue(value: number | undefined, enabled: boolean, probePresent: boolean | undefined): string {
@@ -985,14 +1037,75 @@ function formatDuration(value: number | undefined): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatDeviceAddress(data: StatusData): string {
+  return data.ip?.trim() || getConfiguredGatewayHost();
+}
+
+function formatAccessMode(data: StatusData): string {
+  const ip = data.ip?.trim() || "";
+  if (ip.startsWith("192.168.4.")) return "设备热点";
+  if (/^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[0-1])\\.)/.test(ip)) return "局域网";
+  if (data.net?.includes("WiFi")) return "局域网";
+  return "远程入口";
+}
+
+function formatOnlineLabel(data: StatusData): string {
+  if (data.net?.includes("离线")) return "离线";
+  if (data.net?.includes("在线")) return "在线";
+  return data.ip?.trim() ? "在线" : "待连接";
+}
+
+function formatClock(date: Date): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getConfiguredGatewayHost(): string {
+  try {
+    return new URL(STATIC_BASE_URL).host;
+  } catch {
+    return STATIC_BASE_URL;
+  }
+}
+
+function parseJsonPayload<T>(raw: string, allowEmpty: boolean): T {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    if (allowEmpty) {
+      return undefined as T;
+    }
+    throw new Error("请求失败：空响应");
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch (error) {
+    if (allowEmpty && /^(ok|success|done|queued)$/i.test(trimmed)) {
+      return undefined as T;
+    }
+    throw new Error(`接口返回了非 JSON 文本：${trimmed.slice(0, 80)}`);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function updateStatusLine(message: string, tone: Tone = "ok"): void {
   setStatusMessage("statusLine", message, tone);
 }
 
 function setStatusMessage(id: string, message: string, tone: Tone): void {
   const element = getElement<HTMLElement>(id);
-  element.textContent = message;
   element.dataset.tone = tone;
+  if (id === "statusLine") {
+    setText("statusText", message);
+    element.hidden = !message;
+    return;
+  }
+  element.textContent = message;
 }
 
 function setText(id: string, value: string): void {
