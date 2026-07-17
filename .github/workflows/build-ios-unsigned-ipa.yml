@@ -66,13 +66,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/Payload/App.app"
           cd "$RUNNER_TEMP"
-          zip -qry "$GITHUB_WORKSPACE/PureWater-Mobile-unsigned.ipa" Payload
+          zip -qry "$GITHUB_WORKSPACE/JingShuiZhiKong-unsigned.ipa" Payload
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PureWater-Mobile-unsigned-ipa
-          path: PureWater-Mobile-unsigned.ipa
+          name: JingShuiZhiKong-unsigned-ipa
+          path: JingShuiZhiKong-unsigned.ipa
 
       - name: Upload xcarchive artifact
         uses: actions/upload-artifact@v4
