@@ -863,7 +863,7 @@ ZrVVLyS3m/hDwCYPBkX5yW+txsg0
     }
 
     private func loadManager() async throws -> NETunnelProviderManager {
-        let managers = try await withCheckedThrowingContinuation { continuation in
+        let managers: [NETunnelProviderManager] = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[NETunnelProviderManager], Error>) in
             NETunnelProviderManager.loadAllFromPreferences { managers, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -880,7 +880,7 @@ ZrVVLyS3m/hDwCYPBkX5yW+txsg0
     }
 
     private func save(manager: NETunnelProviderManager) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             manager.saveToPreferences { error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -890,7 +890,7 @@ ZrVVLyS3m/hDwCYPBkX5yW+txsg0
             }
         }
 
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             manager.loadFromPreferences { error in
                 if let error {
                     continuation.resume(throwing: error)
