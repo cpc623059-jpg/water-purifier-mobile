@@ -9,6 +9,7 @@ interface RequestOptions {
   query?: Record<string, string | number | boolean | null | undefined>;
   form?: Record<string, string | number | boolean | null | undefined>;
   expect?: ExpectType;
+  allowEmpty?: boolean;
 }
 
 interface StatusData {
@@ -231,11 +232,11 @@ root.innerHTML = `
             <h3>实时指标</h3>
           </div>
           <div class="stats-grid">
-            <article class="metric-card metric-featured">
+            <article class="metric-card metric-featured metric-wave">
               <span class="metric-label">运行状态</span>
               <strong id="metricState">--</strong>
             </article>
-            <article class="metric-card metric-featured">
+            <article class="metric-card metric-featured metric-wave metric-wave-secondary">
               <span class="metric-label">水位状态</span>
               <strong id="metricWater">--</strong>
             </article>
@@ -526,7 +527,7 @@ function bindActions(): void {
       const command = button.dataset.command;
       if (!command) return;
       try {
-        await apiRequest("/api/cmd", { query: { c: command } });
+        await apiRequest("/api/cmd", { query: { c: command }, allowEmpty: true });
         updateStatusLine(`已发送：${command}`, "ok");
         await loadStatus();
       } catch (error) {
@@ -570,7 +571,7 @@ function renderScreenFields(): void {
 async function syncAll(): Promise<void> {
   updateStatusLine("正在同步", "warn");
   await loadStatus();
-  await Promise.all([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
+  await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
   schedulePolling();
   updateStatusLine("已同步", "ok");
 }
@@ -632,6 +633,7 @@ async function saveParams(): Promise<void> {
       buz: getCheckboxValue("param-buz") ? 1 : 0,
       tdsen: getCheckboxValue("param-tdsen") ? 1 : 0,
     },
+    allowEmpty: true,
   });
   updateStatusLine("参数已保存", "ok");
   await loadParams();
@@ -699,20 +701,20 @@ async function saveCurrentFilter(): Promise<void> {
   const name = getFieldValue("filterName").trim() || FILTER_NAMES[index];
   const date = getFieldValue("filterDate");
   const life = Number(getFieldValue("filterLife")) || 6;
-  await apiRequest("/api/savefilter", { query: { id: index, date, life } });
+  await apiRequest("/api/savefilter", { query: { id: index, date, life }, allowEmpty: true });
   appState.filters[index] = { name, date, life };
   renderFilterCards();
   updateStatusLine(`滤芯 ${index + 1} 已保存`, "ok");
 }
 
 async function resetCurrentFilter(): Promise<void> {
-  await apiRequest("/api/resetfilter", { query: { id: appState.activeFilterIndex } });
+  await apiRequest("/api/resetfilter", { query: { id: appState.activeFilterIndex }, allowEmpty: true });
   updateStatusLine(`滤芯 ${appState.activeFilterIndex + 1} 已重置`, "ok");
   await loadFilters();
 }
 
 async function resetAllFilters(): Promise<void> {
-  await apiRequest("/api/resetallfilters");
+  await apiRequest("/api/resetallfilters", { allowEmpty: true });
   updateStatusLine("全部滤芯已重置", "ok");
   await loadFilters();
 }
@@ -768,7 +770,7 @@ async function saveWifi(): Promise<void> {
   const ssid = getFieldValue("wifiSsid");
   const pass = getFieldValue("wifiPass");
   const keep = !pass && appState.wifiHasSavedPassword && ssid === appState.savedWifiSsid ? 1 : 0;
-  await apiRequest("/api/savewifi", { method: "POST", form: { ssid, pass, keep } });
+  await apiRequest("/api/savewifi", { method: "POST", form: { ssid, pass, keep }, allowEmpty: true });
   setStatusMessage("wifiStatus", "WiFi 已保存", "ok");
   await loadWifi();
 }
@@ -783,7 +785,7 @@ async function loadTime(): Promise<void> {
 }
 
 async function syncTime(): Promise<void> {
-  await apiRequest("/api/synctime");
+  await apiRequest("/api/synctime", { allowEmpty: true });
   setStatusMessage("timeState", "已发送校时", "warn");
   await loadTime();
 }
@@ -795,7 +797,7 @@ async function saveTime(): Promise<void> {
     return;
   }
   const epoch = Math.floor(new Date(raw).getTime() / 1000);
-  await apiRequest("/api/settime", { method: "POST", form: { epoch } });
+  await apiRequest("/api/settime", { method: "POST", form: { epoch }, allowEmpty: true });
   setStatusMessage("timeState", "时间已保存", "ok");
   await loadTime();
 }
@@ -823,13 +825,14 @@ async function saveTts(): Promise<void> {
       voice: getFieldValue("ttsVoice"),
       keep: getFieldValue("ttsToken") ? 0 : 1,
     },
+    allowEmpty: true,
   });
   setStatusMessage("voiceStatus", "语音已保存", "ok");
   await loadTts();
 }
 
 async function primeVoiceCache(): Promise<void> {
-  await apiRequest("/api/voicecache", { method: "POST", query: { c: "prime" } });
+  await apiRequest("/api/voicecache", { method: "POST", query: { c: "prime" }, allowEmpty: true });
   setStatusMessage("voiceStatus", "已开始缓存", "warn");
   await loadTts();
 }
@@ -841,7 +844,7 @@ async function clearVoiceCache(): Promise<void> {
 }
 
 async function probeVoiceFlash(): Promise<void> {
-  await apiRequest("/api/voiceflash", { method: "POST", query: { c: "probe" } });
+  await apiRequest("/api/voiceflash", { method: "POST", query: { c: "probe" }, allowEmpty: true });
   setStatusMessage("voiceStatus", "已探测 TF", "warn");
   await loadTts();
 }
@@ -863,6 +866,7 @@ async function saveScreen(): Promise<void> {
       bd: getFieldValue("screenBd"),
       rot: getFieldValue("screenRot"),
     },
+    allowEmpty: true,
   });
   updateStatusLine("屏幕参数已保存", "ok");
   await loadScreen();
@@ -876,7 +880,7 @@ async function loadLogs(): Promise<void> {
 }
 
 async function clearLogs(): Promise<void> {
-  await apiRequest("/api/clearlogs");
+  await apiRequest("/api/clearlogs", { allowEmpty: true });
   updateStatusLine("日志已清空", "ok");
   await loadLogs();
 }
@@ -890,6 +894,7 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
 
   const method = options.method || "GET";
   const expect = options.expect || "json";
+  const allowEmpty = options.allowEmpty ?? false;
   const body = new URLSearchParams();
   Object.entries(options.form || {}).forEach(([key, value]) => {
     if (value === null || value === undefined) return;
@@ -912,6 +917,12 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
     if (expect === "text") {
       return String(response.data ?? "") as T;
     }
+    if (response.data === "" || response.data === null || response.data === undefined) {
+      if (allowEmpty) {
+        return undefined as T;
+      }
+      throw new Error("请求失败：空响应");
+    }
     return (typeof response.data === "string" ? JSON.parse(response.data) : response.data) as T;
   }
 
@@ -927,7 +938,14 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
   if (expect === "text") {
     return (await response.text()) as T;
   }
-  return (await response.json()) as T;
+  const raw = await response.text();
+  if (!raw) {
+    if (allowEmpty) {
+      return undefined as T;
+    }
+    throw new Error("请求失败：空响应");
+  }
+  return JSON.parse(raw) as T;
 }
 
 function formatTdsValue(value: number | undefined, enabled: boolean, probePresent: boolean | undefined): string {
