@@ -2,6 +2,8 @@ import Foundation
 import NetworkExtension
 import OpenVPNAdapter
 
+extension NEPacketTunnelFlow: OpenVPNAdapterPacketFlow { }
+
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private lazy var vpnAdapter: OpenVPNAdapter = {
         let adapter = OpenVPNAdapter()
