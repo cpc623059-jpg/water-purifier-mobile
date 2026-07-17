@@ -114,7 +114,7 @@ interface WifiScanResult {
   list?: Array<{ ssid: string; rssi: number; secure: string }>;
 }
 
-const STATIC_BASE_URL = "http://192.168.15.119";
+const STATIC_BASE_URL = "http://ik.cccpc.cc:18081";
 const STATUS_POLL_MS = 5000;
 const FILTER_NAMES = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"];
 const SCREEN_COORD_FIELDS = [
@@ -189,7 +189,7 @@ root.innerHTML = `
             </article>
             <article class="hero-metric">
               <span>设备地址</span>
-              <strong id="overviewAddress">192.168.15.119</strong>
+              <strong id="overviewAddress">ik.cccpc.cc:18081</strong>
             </article>
             <article class="hero-metric">
               <span>纯水判定</span>
@@ -261,7 +261,7 @@ root.innerHTML = `
             </article>
             <article class="metric-card">
               <span class="metric-label">设备地址</span>
-              <strong id="metricIp">192.168.15.119</strong>
+              <strong id="metricIp">ik.cccpc.cc:18081</strong>
             </article>
             <article class="metric-card">
               <span class="metric-label">当前时间</span>
@@ -588,7 +588,7 @@ async function loadStatus(): Promise<void> {
   const data = await apiRequest<StatusData>("/api/status");
   setText("metricState", data.state || "--");
   setText("metricNet", data.net || "--");
-  setText("metricIp", data.ip || "192.168.15.119");
+  setText("metricIp", data.ip || "ik.cccpc.cc:18081");
   setText("metricTime", data.time || "--:--");
   setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
   setText("metricRawTds", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
@@ -601,7 +601,7 @@ async function loadStatus(): Promise<void> {
   setText("overviewState", data.state || "在线");
   setText("heroNet", data.net || "在线");
   setText("overviewTime", data.time || "--:--");
-  setText("overviewAddress", "192.168.15.119");
+  setText("overviewAddress", "ik.cccpc.cc:18081");
   setText("overviewQuality", formatTdsQuality(data));
   setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
 }
