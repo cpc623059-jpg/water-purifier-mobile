@@ -30,14 +30,6 @@ jobs:
       - name: Sync Capacitor iOS assets
         run: npx cap sync ios
 
-      - name: Generate Xcode project
-        run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
-          cd ios/App
-          xcodegen generate
-
       - name: Install CocoaPods
         run: |
           cd ios/App
