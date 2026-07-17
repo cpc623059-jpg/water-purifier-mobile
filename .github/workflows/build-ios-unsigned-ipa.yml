@@ -56,6 +56,11 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             clean archive
 
+      - name: Inject bundled web assets into app
+        run: |
+          rm -rf "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app/public"
+          cp -R ios/App/App/public "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app/public"
+
       - name: Package unsigned IPA
         run: |
           mkdir -p "$RUNNER_TEMP/Payload"
