@@ -24,11 +24,16 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Generate Xcode project
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          cd ios/App
+          xcodegen generate
+
       - name: Build web assets
         run: npm run build
-
-      - name: Sync Capacitor iOS project
-        run: npm run cap:sync
 
       - name: Install CocoaPods
         run: |

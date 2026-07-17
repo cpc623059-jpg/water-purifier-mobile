@@ -35,11 +35,11 @@ private enum BannerTone {
     var tint: Color {
         switch self {
         case .ok:
-            return Color(red: 0.12, green: 0.64, blue: 0.47)
+            return Color(red: 0.12, green: 0.66, blue: 0.49)
         case .warn:
-            return Color(red: 0.93, green: 0.64, blue: 0.19)
+            return Color(red: 0.95, green: 0.66, blue: 0.18)
         case .error:
-            return Color(red: 0.91, green: 0.35, blue: 0.35)
+            return Color(red: 0.92, green: 0.34, blue: 0.34)
         }
     }
 }
@@ -47,7 +47,6 @@ private enum BannerTone {
 private struct StatusPayload: Decodable {
     var state: String?
     var time: String?
-    var date: String?
     var tds: Int?
     var tdsPure: Int?
     var tdsRaw: Int?
@@ -80,9 +79,14 @@ private struct ParamsPayload: Decodable {
     var tdsen: Bool?
 }
 
-private struct FilterPayload: Decodable, Identifiable {
-    var id: Int { index }
-    let index: Int
+private struct RemoteFilterPayload: Decodable {
+    var name: String?
+    var date: String?
+    var life: Int?
+}
+
+private struct FilterItem: Identifiable {
+    let id: Int
     var name: String
     var date: String
     var life: Int
@@ -109,8 +113,6 @@ private struct TimePayload: Decodable {
     var valid: Bool?
     var date: String?
     var time: String?
-    var source: String?
-    var rtc: Bool?
     var datetime: String?
 }
 
@@ -126,7 +128,6 @@ private struct TtsPayload: Decodable {
     var flashTaskRunning: Bool?
     var flashQueued: Bool?
     var flashResultKnown: Bool?
-    var flashLastOk: Bool?
 }
 
 private struct ScreenPayload: Decodable {
@@ -164,8 +165,8 @@ private final class DeviceStore: ObservableObject {
     @Published var selectedTab: RootTab = .overview
     @Published var bannerText = "正在同步"
     @Published var bannerTone: BannerTone = .warn
+    @Published var vpnStatus = "VPN准备中"
 
-    @Published var heroNet = "--"
     @Published var heroState = "连接中"
     @Published var overviewTime = "--:--"
     @Published var overviewAddress = "192.168.15.119"
@@ -185,7 +186,7 @@ private final class DeviceStore: ObservableObject {
     @Published var metricQuality = "--"
     @Published var metricRssi = "-- dBm"
 
-    @Published var filters: [FilterPayload] = []
+    @Published var filters: [FilterItem] = []
     @Published var activeFilterIndex = 0
     @Published var filterName = ""
     @Published var filterDate = ""
@@ -241,8 +242,12 @@ private final class DeviceStore: ObservableObject {
     @Published var logs = "暂无日志。"
 
     func bootstrap() {
-        vpnController.prepareIfPossible()
+        vpnController.prepareAndConnect { [weak self] status in
+            self?.vpnStatus = status
+        }
+
         Task { await syncAll() }
+
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -253,14 +258,14 @@ private final class DeviceStore: ObservableObject {
     func syncAll() async {
         updateBanner("正在同步", tone: .warn)
         await loadStatusSilently()
-        async let params = loadParams()
-        async let filterData = loadFilters()
-        async let wifi = loadWifi()
-        async let time = loadTime()
-        async let tts = loadTts()
-        async let screen = loadScreen()
-        async let logs = loadLogs()
-        _ = await (params, filterData, wifi, time, tts, screen, logs)
+        async let a = loadParams()
+        async let b = loadFilters()
+        async let c = loadWifi()
+        async let d = loadTime()
+        async let e = loadTts()
+        async let f = loadScreen()
+        async let g = loadLogs()
+        _ = await (a, b, c, d, e, f, g)
         updateBanner("已同步", tone: .ok)
     }
 
@@ -298,8 +303,21 @@ private final class DeviceStore: ObservableObject {
         }
     }
 
+    func selectFilter(_ index: Int) {
+        activeFilterIndex = index
+        guard filters.indices.contains(index) else { return }
+        let item = filters[index]
+        filterName = item.name
+        filterDate = item.date
+        filterLife = "\(item.life)"
+    }
+
+    func setFilterToday() {
+        filterDate = isoDate(Date())
+    }
+
     func saveFilter() async {
-        let lifeValue = Int(filterLife) ?? 6
+        let life = Int(filterLife) ?? 6
         do {
             try await sendRequest(
                 path: "/api/savefilter",
@@ -307,13 +325,13 @@ private final class DeviceStore: ObservableObject {
                 query: [
                     "id": "\(activeFilterIndex)",
                     "date": filterDate,
-                    "life": "\(lifeValue)",
+                    "life": "\(life)",
                 ]
             )
             if filters.indices.contains(activeFilterIndex) {
                 filters[activeFilterIndex].name = filterName
                 filters[activeFilterIndex].date = filterDate
-                filters[activeFilterIndex].life = lifeValue
+                filters[activeFilterIndex].life = life
             }
             updateBanner("滤芯已保存", tone: .ok)
         } catch {
@@ -339,10 +357,6 @@ private final class DeviceStore: ObservableObject {
         } catch {
             updateBanner(readable(error), tone: .error)
         }
-    }
-
-    func setFilterToday() {
-        filterDate = isoDate(Date())
     }
 
     func scanWifi() async {
@@ -404,11 +418,9 @@ private final class DeviceStore: ObservableObject {
             timeStatus = "请选择时间"
             return
         }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
-        guard let date = displayFormatter.date(from: manualTime) else {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        guard let date = formatter.date(from: manualTime) else {
             timeStatus = "时间格式错误"
             return
         }
@@ -453,7 +465,7 @@ private final class DeviceStore: ObservableObject {
 
     func clearVoiceCache() async {
         do {
-            let text: String = try await request(path: "/api/voicecache", method: "POST", query: ["c": "clear"], expectText: true)
+            let text = try await requestText(path: "/api/voicecache", method: "POST", query: ["c": "clear"])
             voiceStatus = text.isEmpty ? "缓存已清空" : text
             await loadTts()
         } catch {
@@ -505,10 +517,10 @@ private final class DeviceStore: ObservableObject {
             let payload: StatusPayload = try await request(path: "/api/status")
             metricState = payload.state ?? "--"
             metricWater = payload.water ?? "--"
-            metricTds = formatTds(value: payload.tdsPure ?? payload.tds, enabled: payload.tdsen != false, installed: payload.tdsPureProbe)
-            metricRawTds = formatTds(value: payload.tdsRaw, enabled: payload.tdsen != false, installed: payload.tdsRawProbe)
-            metricTemp = formatTemp(value: payload.tempPure ?? payload.temp, enabled: payload.tempen != false, installed: payload.tempPureProbe)
-            metricRawTemp = formatTemp(value: payload.tempRaw, enabled: payload.tempen != false, installed: payload.tempRawProbe)
+            metricTds = formatTds(payload.tdsPure ?? payload.tds, enabled: payload.tdsen != false, installed: payload.tdsPureProbe)
+            metricRawTds = formatTds(payload.tdsRaw, enabled: payload.tdsen != false, installed: payload.tdsRawProbe)
+            metricTemp = formatTemp(payload.tempPure ?? payload.temp, enabled: payload.tempen != false, installed: payload.tempPureProbe)
+            metricRawTemp = formatTemp(payload.tempRaw, enabled: payload.tempen != false, installed: payload.tempRawProbe)
             metricNet = payload.net ?? "--"
             metricIp = payload.ip ?? "192.168.15.119"
             metricTime = payload.time ?? "--:--"
@@ -516,7 +528,6 @@ private final class DeviceStore: ObservableObject {
             metricQuality = formatQuality(payload)
             metricRssi = payload.rssi.map { "\($0) dBm" } ?? "-- dBm"
 
-            heroNet = payload.net ?? "--"
             heroState = payload.state ?? "在线"
             overviewTime = payload.time ?? "--:--"
             overviewAddress = "192.168.15.119"
@@ -544,20 +555,20 @@ private final class DeviceStore: ObservableObject {
 
     private func loadFilters() async {
         do {
-            let raw: [RemoteFilter] = try await request(path: "/api/filters")
-            var mapped = raw.enumerated().map { index, item in
-                FilterPayload(
-                    index: index,
+            let raw: [RemoteFilterPayload] = try await request(path: "/api/filters")
+            var mapped: [FilterItem] = raw.enumerated().map { index, item in
+                FilterItem(
+                    id: index,
                     name: item.name?.isEmpty == false ? item.name! : filterNames[index],
                     date: String((item.date ?? "2026-01-01").prefix(10)),
                     life: item.life ?? 6
                 )
             }
             while mapped.count < filterNames.count {
-                mapped.append(FilterPayload(index: mapped.count, name: filterNames[mapped.count], date: "2026-01-01", life: 6))
+                mapped.append(FilterItem(id: mapped.count, name: filterNames[mapped.count], date: "2026-01-01", life: 6))
             }
             filters = mapped
-            applyFilterSelection()
+            selectFilter(activeFilterIndex)
         } catch {}
     }
 
@@ -577,8 +588,7 @@ private final class DeviceStore: ObservableObject {
     private func loadTime() async {
         do {
             let payload: TimePayload = try await request(path: "/api/time")
-            let stamp = payload.valid == true ? "\(payload.date ?? "--") \(payload.time ?? "--")" : "--"
-            timeStatus = stamp
+            timeStatus = payload.valid == true ? "\(payload.date ?? "--") \(payload.time ?? "--")" : "--"
             if let datetime = payload.datetime {
                 manualTime = datetime
             }
@@ -640,64 +650,65 @@ private final class DeviceStore: ObservableObject {
     private func loadLogs() async {
         do {
             let payload: LogsPayload = try await request(path: "/api/logs")
-            logMeta = "日志 \(payload.count ?? 0)\(payload.freeHeap.map { " · \($0 / 1024)KB" } ?? "")"
+            let heap = payload.freeHeap.map { " · \($0 / 1024)KB" } ?? ""
+            logMeta = "日志 \(payload.count ?? 0)\(heap)"
             logs = payload.items?.joined(separator: "\n") ?? "暂无日志。"
         } catch {
             logs = "读取失败"
         }
     }
 
-    private func applyFilterSelection() {
-        guard filters.indices.contains(activeFilterIndex) else { return }
-        let item = filters[activeFilterIndex]
-        filterName = item.name
-        filterDate = item.date
-        filterLife = "\(item.life)"
-    }
-
-    func selectFilter(_ index: Int) {
-        activeFilterIndex = index
-        applyFilterSelection()
-    }
-
     private func request<T: Decodable>(
         path: String,
         method: String = "GET",
         query: [String: String] = [:],
-        form: [String: String] = [:],
-        expectText: Bool = false
+        form: [String: String] = [:]
     ) async throws -> T {
         var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
-        guard let url = components.url else {
-            throw URLError(.badURL)
-        }
+        guard let url = components.url else { throw URLError(.badURL) }
 
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 12
         if !form.isEmpty {
             request.setValue("application/x-www-form-urlencoded;charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = form
-                .map { key, value in
-                    "\(key)=\((value as NSString).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value)"
-                }
-                .joined(separator: "&")
-                .data(using: .utf8)
+            request.httpBody = form.map { key, value in
+                "\(key)=\((value as NSString).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value)"
+            }
+            .joined(separator: "&")
+            .data(using: .utf8)
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-
-        if expectText, let string = String(data: data, encoding: .utf8) as? T {
-            return string
-        }
-
         return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func requestText(
+        path: String,
+        method: String = "GET",
+        query: [String: String] = [:]
+    ) async throws -> String {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty {
+            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 12
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private func sendRequest(
@@ -706,31 +717,8 @@ private final class DeviceStore: ObservableObject {
         query: [String: String] = [:],
         form: [String: String] = [:]
     ) async throws {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
-        if !query.isEmpty {
-            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-        }
-        guard let url = components.url else {
-            throw URLError(.badURL)
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 12
-        if !form.isEmpty {
-            request.setValue("application/x-www-form-urlencoded;charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = form
-                .map { key, value in
-                    "\(key)=\((value as NSString).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value)"
-                }
-                .joined(separator: "&")
-                .data(using: .utf8)
-        }
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
+        struct Empty: Decodable {}
+        let _: Empty = try await request(path: path, method: method, query: query, form: form)
     }
 
     private func updateBanner(_ text: String, tone: BannerTone) {
@@ -749,14 +737,14 @@ private final class DeviceStore: ObservableObject {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    private func formatTds(value: Int?, enabled: Bool, installed: Bool?) -> String {
+    private func formatTds(_ value: Int?, enabled: Bool, installed: Bool?) -> String {
         guard enabled else { return "模块关闭" }
         guard installed == true else { return "未安装" }
         guard let value else { return "-- ppm" }
         return "\(value) ppm"
     }
 
-    private func formatTemp(value: Double?, enabled: Bool, installed: Bool?) -> String {
+    private func formatTemp(_ value: Double?, enabled: Bool, installed: Bool?) -> String {
         guard enabled else { return "模块关闭" }
         guard installed == true else { return "未安装" }
         guard let value else { return "-- °C" }
@@ -786,20 +774,129 @@ private final class DeviceStore: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
-
-    private struct RemoteFilter: Decodable {
-        var name: String?
-        var date: String?
-        var life: Int?
-    }
 }
 
 private final class VPNAutoController {
-    func prepareIfPossible() {
-        NETunnelProviderManager.loadAllFromPreferences { managers, _ in
-            guard let manager = managers?.first, manager.isEnabled else { return }
-            if manager.connection.status == .disconnected || manager.connection.status == .invalid {
-                try? manager.connection.startVPNTunnel()
+    private let providerBundleIdentifier = "com.codex.purewater.mobile.VPNExtension"
+    private let profileName = "净水智控 VPN"
+    private let username = "jingshuiji"
+    private let password = "cpc68cpc"
+    private let serverAddress = "10.16.167.43"
+    private let ovpnConfiguration = """
+client
+dev-type tun
+dev tunx
+proto udp
+tun-mtu 1400
+cipher BF-CBC
+comp-lzo
+remote 10.16.167.43 1194
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+verb 3
+auth-user-pass
+
+<ca>
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgIJAK8ek/1v8AgvMA0GCSqGSIb3DQEBCwUAMDcxCzAJBgNV
+BAYTAkNOMQ4wDAYDVQQKDAVpS3VhaTEYMBYGA1UEAwwPaUt1YWkgRGV2aWNlIENB
+MB4XDTIzMTIxNzE2NDczN1oXDTMzMTIxNDE2NDczN1owNzELMAkGA1UEBhMCQ04x
+DjAMBgNVBAoMBWlLdWFpMRgwFgYDVQQDDA9pS3VhaSBEZXZpY2UgQ0EwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDNw5choU05MZUfG0LCAuPui+d9LtTx
+emdmT6ei6edfofcZHl01OwjWKfAPDs5cH3nI6DBkEfzDGQdxMdO36p1FLLhpehf8
+PgA8VGOyK62dOmugdsBWLWIsFEiMQoRN88vK5Uo+oY2nVUgcO9b8QAsRcWgnvM0N
+C0gfWAc26ltCR2C2WfDQhF2kqol45qJ5GJ0xDhPm9ULYViVpFBwYsEDhVSfOQZGU
+cFgkmXmYQeZxmeB5UwGpMMkcge89FriTY4/Gp9Ii9isG0VduOlizYRcVkoOEW76i
+C4tBOBkn1zdX3ZQDvPhyc9ddqxGnyY454ldrG4AgIrgAHKYJfX0U1l5LAgMBAAGj
+UDBOMB0GA1UdDgQWBBTHvxM1lel6T0BbuGqCPW1cNcp4djAfBgNVHSMEGDAWgBTH
+vxM1lel6T0BbuGqCPW1cNcp4djAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBCwUA
+A4IBAQBhWA2cqyP233zrYvUnKVAoDnP9U0mqohBT+T4e0JDXVGCWOndukmKg6xtZ
+UgyiF+sFH3bxE64QMVblwXpl10SABRhvPk/4eEDLnPJME6fCfy5f5yy3bpJK8m6E
+1fo8tryqpnlUgU7GoeKCNKIlFVfOl97LRRrjtTBiO+51O0sVuxQr4by73BTBqb6y
+4KG4+Ed7xiWxmrtrM3kP0ycpHg+X7WDIepyghNFNpTMiZAoLbF8l0mKsgUXJPQRm
+z+NZpdUMqDWFQpAZh5XsdylpL6UGF/MGukXMM6ALSuUQJLijix5Q4ZCfxCiA0YDw
+ZrVVLyS3m/hDwCYPBkX5yW+txsg0
+-----END CERTIFICATE-----
+
+</ca>
+"""
+
+    func prepareAndConnect(update: @escaping @MainActor (String) -> Void) {
+        Task {
+            await update("VPN准备中")
+            do {
+                let manager = try await loadManager()
+                configure(manager: manager)
+                try await save(manager: manager)
+                await update("VPN连接中")
+
+                if manager.connection.status == .disconnected || manager.connection.status == .invalid {
+                    try manager.connection.startVPNTunnel()
+                }
+
+                await update("VPN已启动")
+            } catch {
+                await update("VPN待授权")
+            }
+        }
+    }
+
+    private func configure(manager: NETunnelProviderManager) {
+        let tunnel = NETunnelProviderProtocol()
+        tunnel.providerBundleIdentifier = providerBundleIdentifier
+        tunnel.serverAddress = serverAddress
+        tunnel.username = username
+        tunnel.disconnectOnSleep = false
+        tunnel.providerConfiguration = [
+            "ovpn": Data(ovpnConfiguration.utf8),
+            "username": username,
+            "password": password,
+        ]
+
+        manager.localizedDescription = profileName
+        manager.protocolConfiguration = tunnel
+        manager.isEnabled = true
+        manager.isOnDemandEnabled = true
+        manager.onDemandRules = [NEOnDemandRuleConnect()]
+    }
+
+    private func loadManager() async throws -> NETunnelProviderManager {
+        let managers = try await withCheckedThrowingContinuation { continuation in
+            NETunnelProviderManager.loadAllFromPreferences { managers, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: managers ?? [])
+                }
+            }
+        }
+
+        if let manager = managers.first(where: { $0.localizedDescription == profileName }) {
+            return manager
+        }
+        return NETunnelProviderManager()
+    }
+
+    private func save(manager: NETunnelProviderManager) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            manager.saveToPreferences { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+
+        try await withCheckedThrowingContinuation { continuation in
+            manager.loadFromPreferences { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
             }
         }
     }
@@ -866,7 +963,6 @@ private struct RootView: View {
                 Text("净水智控")
                     .font(.caption)
                     .foregroundStyle(Color(red: 0.21, green: 0.42, blue: 0.68))
-                    .textCase(.uppercase)
                 Text(store.heroState)
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
@@ -875,7 +971,7 @@ private struct RootView: View {
 
             Spacer()
 
-            Text(store.heroNet)
+            Text(store.vpnStatus)
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -924,11 +1020,33 @@ private struct OverviewView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
                 GlassSection {
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        HeroStat(title: "当前时间", value: store.overviewTime)
-                        HeroStat(title: "设备地址", value: store.overviewAddress)
-                        HeroStat(title: "纯水判定", value: store.overviewQuality)
-                        HeroStat(title: "信号强度", value: store.overviewSignal)
+                    VStack(spacing: 16) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(store.metricTds)
+                                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.05, green: 0.34, blue: 0.92))
+                                Text("纯水 TDS")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 8) {
+                                Text(store.metricWater)
+                                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.09, green: 0.62, blue: 0.48))
+                                Text("水位状态")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        LazyVGrid(columns: columns, spacing: 14) {
+                            HeroStat(title: "当前时间", value: store.overviewTime)
+                            HeroStat(title: "设备地址", value: store.overviewAddress)
+                            HeroStat(title: "纯水判定", value: store.overviewQuality)
+                            HeroStat(title: "信号强度", value: store.overviewSignal)
+                        }
                     }
                 }
 
@@ -952,17 +1070,17 @@ private struct OverviewView: View {
                 GlassSection(header: "实时指标") {
                     LazyVGrid(columns: columns, spacing: 14) {
                         MetricCard(title: "运行状态", value: store.metricState, featured: true)
-                        MetricCard(title: "水位状态", value: store.metricWater, featured: true)
-                        MetricCard(title: "纯水 TDS", value: store.metricTds)
+                        MetricCard(title: "纯水 TDS", value: store.metricTds, featured: true)
                         MetricCard(title: "原水 TDS", value: store.metricRawTds)
                         MetricCard(title: "纯水温度", value: store.metricTemp)
                         MetricCard(title: "原水温度", value: store.metricRawTemp)
                         MetricCard(title: "网络", value: store.metricNet)
-                        MetricCard(title: "设备地址", value: store.metricIp)
                         MetricCard(title: "当前时间", value: store.metricTime)
                         MetricCard(title: "剩余时间", value: store.metricRemain)
                         MetricCard(title: "纯水判定", value: store.metricQuality)
                         MetricCard(title: "信号强度", value: store.metricRssi)
+                        MetricCard(title: "设备地址", value: store.metricIp)
+                        MetricCard(title: "水位状态", value: store.metricWater)
                     }
                 }
             }
@@ -980,17 +1098,17 @@ private struct FilterView: View {
             VStack(spacing: 16) {
                 GlassSection {
                     LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(store.filters) { filter in
+                        ForEach(store.filters) { item in
                             Button {
-                                store.selectFilter(filter.index)
+                                store.selectFilter(item.id)
                             } label: {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(filter.name)
+                                    Text(item.name)
                                         .font(.headline)
-                                    Text(filter.date)
+                                    Text(item.date)
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
-                                    Text("\(filter.life) 个月")
+                                    Text("\(item.life) 个月")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(Color.blue)
                                 }
@@ -998,7 +1116,7 @@ private struct FilterView: View {
                                 .padding(16)
                                 .background(
                                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .fill(store.activeFilterIndex == filter.index ? Color.blue.opacity(0.14) : Color.white.opacity(0.22))
+                                        .fill(store.activeFilterIndex == item.id ? Color.blue.opacity(0.14) : Color.white.opacity(0.22))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -1009,7 +1127,7 @@ private struct FilterView: View {
                 GlassSection {
                     VStack(spacing: 12) {
                         GlassField(title: "滤芯名称", text: $store.filterName)
-                        GlassDateField(title: "安装日期", text: $store.filterDate)
+                        GlassField(title: "安装日期", text: $store.filterDate)
                         GlassField(title: "寿命（月）", text: $store.filterLife, keyboard: .numberPad)
                     }
                 }
@@ -1037,7 +1155,7 @@ private struct SettingsView: View {
             VStack(spacing: 16) {
                 GlassSection(header: "运行参数") {
                     VStack(spacing: 12) {
-                        TwoFieldGrid {
+                        LazyVGrid(columns: columns, spacing: 12) {
                             GlassField(title: "制水超时", text: $store.mk, keyboard: .numberPad)
                             GlassField(title: "停止延时", text: $store.dly, keyboard: .numberPad)
                             GlassField(title: "洗膜时长", text: $store.wsh, keyboard: .numberPad)
@@ -1087,7 +1205,7 @@ private struct SettingsView: View {
                 GlassSection(header: "时间") {
                     VStack(spacing: 12) {
                         StatusChip(text: store.timeStatus)
-                        GlassDateTimeField(title: "手动时间", text: $store.manualTime)
+                        GlassField(title: "手动时间", text: $store.manualTime)
                         ActionRowButton(title: "校时", style: .ghost) { Task { await store.syncTime() } }
                         ActionRowButton(title: "保存", style: .primary) { Task { await store.saveTime() } }
                     }
@@ -1098,7 +1216,7 @@ private struct SettingsView: View {
                         GlassField(title: "App ID", text: $store.ttsAppid)
                         GlassSecureField(title: "Access Token", text: $store.ttsToken)
                         GlassField(title: "Voice", text: $store.ttsVoice)
-                        TwoMetricGrid {
+                        LazyVGrid(columns: columns, spacing: 12) {
                             MetricCard(title: "缓存进度", value: store.voiceCacheRatio)
                             MetricCard(title: "语音状态", value: store.voiceReadyState)
                             MetricCard(title: "TF 卡状态", value: store.voiceFlashState)
@@ -1114,7 +1232,7 @@ private struct SettingsView: View {
 
                 GlassSection(header: "屏幕") {
                     VStack(spacing: 12) {
-                        TwoFieldGrid {
+                        LazyVGrid(columns: columns, spacing: 12) {
                             GlassField(title: "左上 X", text: $store.screenLtx, keyboard: .numberPad)
                             GlassField(title: "左上 Y", text: $store.screenLty, keyboard: .numberPad)
                             GlassField(title: "右上 X", text: $store.screenRtx, keyboard: .numberPad)
@@ -1292,7 +1410,7 @@ private struct GlassField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.18, green: 0.3, blue: 0.46))
+                .foregroundStyle(Color(red: 0.18, green: 0.30, blue: 0.46))
             TextField(title, text: $text)
                 .keyboardType(keyboard)
                 .textFieldStyle(GlassTextFieldStyle())
@@ -1308,28 +1426,10 @@ private struct GlassSecureField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.18, green: 0.3, blue: 0.46))
+                .foregroundStyle(Color(red: 0.18, green: 0.30, blue: 0.46))
             SecureField(title, text: $text)
                 .textFieldStyle(GlassTextFieldStyle())
         }
-    }
-}
-
-private struct GlassDateField: View {
-    let title: String
-    @Binding var text: String
-
-    var body: some View {
-        GlassField(title: title, text: $text)
-    }
-}
-
-private struct GlassDateTimeField: View {
-    let title: String
-    @Binding var text: String
-
-    var body: some View {
-        GlassField(title: title, text: $text)
     }
 }
 
@@ -1405,26 +1505,6 @@ private struct StatusChip: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-}
-
-private struct TwoFieldGrid<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            content
-        }
-    }
-}
-
-private struct TwoMetricGrid<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            content
-        }
     }
 }
 
