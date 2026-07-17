@@ -498,10 +498,22 @@ root.innerHTML = `
   </div>
 `;
 
-renderScreenFields();
-bindTabs();
-bindActions();
-syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
+window.addEventListener("error", (event) => {
+  renderFatalScreen(describeError(event.error ?? event.message));
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  renderFatalScreen(describeError(event.reason));
+});
+
+try {
+  renderScreenFields();
+  bindTabs();
+  bindActions();
+  syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
+} catch (error) {
+  renderFatalScreen(describeError(error));
+}
 
 function bindTabs(): void {
   document.querySelectorAll<HTMLButtonElement>(".tab").forEach((button) => {
@@ -1046,6 +1058,23 @@ function handleError(error: unknown): void {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "操作失败";
+}
+
+function renderFatalScreen(message: string): void {
+  root.innerHTML = `
+    <div class="app-shell">
+      <div class="ambient ambient-a"></div>
+      <div class="ambient ambient-b"></div>
+      <section class="hero-card" style="margin-top: 18vh;">
+        <div class="section-head">
+          <h3>净水智控</h3>
+        </div>
+        <div class="status-line" data-tone="error" style="margin-top: 18px;">
+          ${escapeHtml(message || "启动失败")}
+        </div>
+      </section>
+    </div>
+  `;
 }
 
 function escapeHtml(value: string): string {
