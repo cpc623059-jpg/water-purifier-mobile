@@ -7,7 +7,7 @@ target 'App' do
 end
 
 target 'VPNExtension' do
-  pod 'OpenVPNAdapter'
+  pod 'OpenVPNAdapter', :git => 'https://github.com/ss-abramchuk/openvpnadapter.git'
 end
 
 post_install do |installer|
