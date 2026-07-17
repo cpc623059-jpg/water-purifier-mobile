@@ -148,7 +148,6 @@ const SCREEN_FIELD_LABELS: Record<(typeof SCREEN_COORD_FIELDS)[number], string> 
 };
 
 const appState = {
-  baseUrl: STATIC_BASE_URL,
   filters: [] as FilterData[],
   activeFilterIndex: 0,
   wifiHasSavedPassword: false,
@@ -213,11 +212,11 @@ root.innerHTML = `
               <span>开始</span>
             </button>
             <button class="action-card action-wash" data-command="wash" type="button">
-              <strong>手动洗膜</strong>
-              <span>冲洗</span>
+              <strong>手动冲洗</strong>
+              <span>执行</span>
             </button>
             <button class="action-card action-stop" data-command="stop" type="button">
-              <strong>停止</strong>
+              <strong>停止运行</strong>
               <span>结束</span>
             </button>
             <button class="action-card action-reset" data-command="reset" type="button">
@@ -283,7 +282,7 @@ root.innerHTML = `
       <section class="panel" id="panel-filters">
         <section class="glass-card">
           <div class="section-head">
-            <h3>滤芯</h3>
+            <h3>滤芯管理</h3>
           </div>
           <div class="filter-list" id="filterList"></div>
           <div class="form-grid">
@@ -324,7 +323,7 @@ root.innerHTML = `
               <input id="param-dly" type="number" min="0" max="600" step="5" />
             </label>
             <label class="field">
-              <span>洗膜时长</span>
+              <span>冲洗时长</span>
               <input id="param-wsh" type="number" min="0" max="600" step="5" />
             </label>
             <label class="field">
@@ -478,7 +477,7 @@ root.innerHTML = `
       <section class="panel" id="panel-logs">
         <section class="glass-card">
           <div class="section-head logs-head">
-            <h3>日志</h3>
+            <h3>运行日志</h3>
             <span class="runtime-pill" id="logMeta">日志 0 条</span>
           </div>
           <div class="button-row">
@@ -902,8 +901,6 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
       method,
       headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
       data: body.size ? body.toString() : undefined,
-      // Some device endpoints return HTTP 200 with an empty body.
-      // Always read native responses as text so we can decide locally whether empty is acceptable.
       responseType: "text",
       readTimeout: 12000,
       connectTimeout: 12000,
