@@ -21,7 +21,6 @@ targets:
     sources:
       - path: App
         excludes:
-          - Base.lproj/Main.storyboard
           - public
     resources:
       - path: App/public
