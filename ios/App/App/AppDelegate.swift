@@ -9,6 +9,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithTransparentBackground()
+        tabAppearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
+        tabAppearance.backgroundColor = UIColor.white.withAlphaComponent(0.45)
+        tabAppearance.shadowColor = UIColor.white.withAlphaComponent(0.18)
+        UITabBar.appearance().standardAppearance = tabAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = UIHostingController(rootView: RootView(store: store))
         window.makeKeyAndVisible()
@@ -39,6 +47,21 @@ private enum BannerTone {
         case .error:
             return Color(red: 0.92, green: 0.34, blue: 0.34)
         }
+    }
+
+    var icon: String {
+        switch self {
+        case .ok:
+            return "checkmark.seal.fill"
+        case .warn:
+            return "bolt.badge.clock.fill"
+        case .error:
+            return "wifi.exclamationmark"
+        }
+    }
+
+    var surface: Color {
+        tint.opacity(0.14)
     }
 }
 
@@ -793,34 +816,29 @@ private final class DeviceStore: ObservableObject {
     }
 }
 
+private enum AppTheme {
+    static let ink = Color(red: 0.08, green: 0.13, blue: 0.22)
+    static let mutedInk = Color(red: 0.31, green: 0.40, blue: 0.53)
+    static let blue = Color(red: 0.12, green: 0.42, blue: 0.94)
+    static let cyan = Color(red: 0.19, green: 0.74, blue: 0.96)
+    static let mint = Color(red: 0.19, green: 0.76, blue: 0.64)
+    static let amber = Color(red: 0.98, green: 0.76, blue: 0.31)
+    static let rose = Color(red: 0.94, green: 0.37, blue: 0.48)
+    static let panel = Color.white.opacity(0.22)
+    static let panelHeavy = Color.white.opacity(0.58)
+    static let field = Color.white.opacity(0.32)
+    static let border = Color.white.opacity(0.34)
+    static let softShadow = Color(red: 0.12, green: 0.25, blue: 0.42).opacity(0.14)
+}
+
 private struct RootView: View {
     @ObservedObject var store: DeviceStore
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.93, green: 0.96, blue: 1.0),
-                    Color(red: 0.87, green: 0.92, blue: 0.97),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            AppBackdrop()
 
-            Circle()
-                .fill(Color.cyan.opacity(0.18))
-                .frame(width: 260, height: 260)
-                .blur(radius: 30)
-                .offset(x: -120, y: -220)
-
-            Circle()
-                .fill(Color.blue.opacity(0.14))
-                .frame(width: 220, height: 220)
-                .blur(radius: 30)
-                .offset(x: 140, y: -160)
-
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 header
                 banner
 
@@ -841,7 +859,9 @@ private struct RootView: View {
                         .tag(RootTab.logs)
                         .tabItem { Label("日志", systemImage: "text.alignleft") }
                 }
-                .tint(Color(red: 0.08, green: 0.42, blue: 0.95))
+                .tint(AppTheme.blue)
+                .toolbarBackground(.visible, for: .tabBar)
+                .toolbarBackground(.ultraThinMaterial, for: .tabBar)
             }
             .padding(.horizontal, 14)
             .padding(.top, 10)
@@ -849,51 +869,131 @@ private struct RootView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("净水智控")
-                    .font(.caption)
-                    .foregroundStyle(Color(red: 0.21, green: 0.42, blue: 0.68))
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.34), Color.white.opacity(0.10)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 58, height: 58)
+                Image(systemName: "drop.fill")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [AppTheme.cyan, AppTheme.blue],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("净水智控")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.blue)
+                    InlinePill(text: "公网直连", icon: "bolt.horizontal.circle.fill", tint: AppTheme.cyan)
+                }
                 Text(store.heroState)
                     .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
+                    .foregroundStyle(AppTheme.ink)
+                    .lineLimit(1)
+                Text("设备地址 \(ServiceEndpoint.primaryURL.host ?? "ik.cccpc.cc")")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.mutedInk)
                     .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: 10)
 
-            Button {
-                Task { await store.syncAll() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 16, weight: .bold))
-                    .frame(width: 42, height: 42)
-                    .background(.ultraThinMaterial, in: Circle())
+            VStack(alignment: .trailing, spacing: 10) {
+                InlinePill(text: store.metricNet, icon: "dot.radiowaves.left.and.right", tint: AppTheme.mint)
+
+                Button {
+                    Task { await store.syncAll() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(width: 42, height: 42)
+                        .background(Color.white.opacity(0.30), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.ink)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: AppTheme.softShadow, radius: 18, y: 12)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.white.opacity(0.35), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(AppTheme.border, lineWidth: 1)
         )
     }
 
     private var banner: some View {
-        Text(store.bannerText)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(store.bannerTone.tint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(store.bannerTone.tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        HStack(spacing: 12) {
+            Image(systemName: store.bannerTone.icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(store.bannerTone.tint)
+            Text(store.bannerText)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.ink)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Text(store.metricTime)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(store.bannerTone.tint)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(store.bannerTone.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(AppTheme.border, lineWidth: 1)
+        )
+    }
+}
+
+private struct AppBackdrop: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.97, green: 0.98, blue: 1.0),
+                    Color(red: 0.88, green: 0.93, blue: 0.99),
+                    Color(red: 0.83, green: 0.90, blue: 0.97),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
+            .ignoresSafeArea()
+
+            Circle()
+                .fill(Color.white.opacity(0.42))
+                .frame(width: 340, height: 340)
+                .blur(radius: 36)
+                .offset(x: -140, y: -240)
+
+            Circle()
+                .fill(AppTheme.cyan.opacity(0.22))
+                .frame(width: 300, height: 300)
+                .blur(radius: 54)
+                .offset(x: 160, y: -180)
+
+            Circle()
+                .fill(AppTheme.blue.opacity(0.10))
+                .frame(width: 260, height: 260)
+                .blur(radius: 48)
+                .offset(x: 120, y: 280)
+        }
     }
 }
 
@@ -904,73 +1004,99 @@ private struct OverviewView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
-                GlassSection {
-                    VStack(spacing: 16) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(store.metricTds)
-                                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.05, green: 0.34, blue: 0.92))
-                                Text("纯水 TDS")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 8) {
-                                Text(store.metricWater)
-                                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.09, green: 0.62, blue: 0.48))
-                                Text("水位状态")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                heroPanel
 
-                        LazyVGrid(columns: columns, spacing: 14) {
-                            HeroStat(title: "当前时间", value: store.overviewTime)
-                            HeroStat(title: "接入方式", value: store.overviewAccess)
-                            HeroStat(title: "纯水判定", value: store.overviewQuality)
-                            HeroStat(title: "信号强度", value: store.overviewSignal)
-                        }
-                    }
-                }
-
-                GlassSection(header: "快捷控制") {
+                GlassSection(header: "快捷控制", subtitle: "常用操作") {
                     LazyVGrid(columns: columns, spacing: 14) {
-                        CommandButton(title: "手动制水", subtitle: "开始", colors: [.blue, .cyan]) {
+                        CommandButton(title: "手动制水", subtitle: "立即开始", colors: [AppTheme.blue, AppTheme.cyan], systemImage: "play.fill") {
                             Task { await store.sendCommand("make") }
                         }
-                        CommandButton(title: "手动洗膜", subtitle: "冲洗", colors: [.mint, .teal]) {
+                        CommandButton(title: "手动洗膜", subtitle: "快速冲洗", colors: [Color(red: 0.15, green: 0.72, blue: 0.70), AppTheme.mint], systemImage: "arrow.triangle.2.circlepath") {
                             Task { await store.sendCommand("wash") }
                         }
-                        CommandButton(title: "停止", subtitle: "结束", colors: [.pink, .red]) {
+                        CommandButton(title: "停止运行", subtitle: "结束流程", colors: [Color(red: 0.97, green: 0.45, blue: 0.55), Color(red: 0.86, green: 0.23, blue: 0.35)], systemImage: "stop.fill") {
                             Task { await store.sendCommand("stop") }
                         }
-                        CommandButton(title: "复位", subtitle: "重置", colors: [.orange, .yellow]) {
+                        CommandButton(title: "设备复位", subtitle: "重新校准", colors: [AppTheme.amber, Color(red: 0.97, green: 0.58, blue: 0.24)], systemImage: "power") {
                             Task { await store.sendCommand("reset") }
                         }
                     }
                 }
 
-                GlassSection(header: "实时指标") {
+                GlassSection(header: "关键指标", subtitle: "核心状态一眼看清") {
                     LazyVGrid(columns: columns, spacing: 14) {
-                        MetricCard(title: "运行状态", value: store.metricState, featured: true)
-                        MetricCard(title: "纯水 TDS", value: store.metricTds, featured: true)
-                        MetricCard(title: "原水 TDS", value: store.metricRawTds)
-                        MetricCard(title: "纯水温度", value: store.metricTemp)
-                        MetricCard(title: "原水温度", value: store.metricRawTemp)
-                        MetricCard(title: "网络", value: store.metricNet)
-                        MetricCard(title: "当前时间", value: store.metricTime)
-                        MetricCard(title: "剩余时间", value: store.metricRemain)
-                        MetricCard(title: "纯水判定", value: store.metricQuality)
-                        MetricCard(title: "信号强度", value: store.metricRssi)
-                        MetricCard(title: "接入方式", value: store.metricAccess)
-                        MetricCard(title: "水位状态", value: store.metricWater)
+                        MetricCard(title: "运行状态", value: store.metricState, featured: true, icon: "power.circle.fill", accent: AppTheme.blue)
+                        MetricCard(title: "原水 TDS", value: store.metricRawTds, featured: true, icon: "aqi.medium", accent: AppTheme.cyan)
+                        MetricCard(title: "纯水温度", value: store.metricTemp, icon: "thermometer.medium", accent: AppTheme.mint)
+                        MetricCard(title: "原水温度", value: store.metricRawTemp, icon: "thermometer.high", accent: AppTheme.amber)
+                        MetricCard(title: "信号强度", value: store.metricRssi, icon: "antenna.radiowaves.left.and.right", accent: AppTheme.blue)
+                        MetricCard(title: "网络状态", value: store.metricNet, icon: "wifi", accent: AppTheme.mint)
+                        MetricCard(title: "接入方式", value: store.metricAccess, icon: "bolt.horizontal.circle.fill", accent: AppTheme.cyan)
+                        MetricCard(title: "水位状态", value: store.metricWater, icon: "drop.circle.fill", accent: AppTheme.blue)
                     }
                 }
             }
             .padding(.bottom, 28)
         }
+    }
+
+    private var heroPanel: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                InlinePill(text: store.metricState, icon: "waveform.path.ecg", tint: AppTheme.blue, inverted: true)
+                Spacer()
+                InlinePill(text: store.metricRssi, icon: "antenna.radiowaves.left.and.right", tint: AppTheme.cyan, inverted: true)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("纯水品质")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.white.opacity(0.72))
+                    Text(store.metricTds)
+                        .font(.system(size: 46, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .minimumScaleFactor(0.72)
+                    Text("原水 \(store.metricRawTds)")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.white.opacity(0.78))
+
+                    HStack(spacing: 10) {
+                        HeroStat(title: "当前时间", value: store.overviewTime)
+                        HeroStat(title: "纯水判定", value: store.overviewQuality)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(spacing: 10) {
+                    SignalPill(title: "剩余时间", value: store.metricRemain, tint: AppTheme.amber)
+                    SignalPill(title: "水位状态", value: store.metricWater, tint: AppTheme.mint)
+                    SignalPill(title: "连接方式", value: store.overviewAccess, tint: AppTheme.cyan)
+                }
+                .frame(maxWidth: 170)
+            }
+        }
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.08, green: 0.20, blue: 0.39),
+                            Color(red: 0.11, green: 0.38, blue: 0.68),
+                            Color(red: 0.19, green: 0.63, blue: 0.82),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: AppTheme.blue.opacity(0.22), radius: 20, y: 12)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
     }
 }
 
@@ -981,27 +1107,54 @@ private struct FilterView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
-                GlassSection {
+                GlassSection(header: "滤芯总览", subtitle: "更换周期与寿命状态") {
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(store.filters) { item in
                             Button {
                                 store.selectFilter(item.id)
                             } label: {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(item.name)
-                                        .font(.headline)
+                                VStack(alignment: .leading, spacing: 12) {
+                                    HStack {
+                                        Text(item.name)
+                                            .font(.headline.weight(.semibold))
+                                            .foregroundStyle(AppTheme.ink)
+                                        Spacer()
+                                        Text("\(item.life) 月")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(AppTheme.blue)
+                                    }
+
                                     Text(item.date)
                                         .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    Text("\(item.life) 个月")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.blue)
+                                        .foregroundStyle(AppTheme.mutedInk)
+
+                                    GeometryReader { proxy in
+                                        let ratio = max(0.08, min(1.0, CGFloat(item.life) / 12.0))
+                                        ZStack(alignment: .leading) {
+                                            Capsule()
+                                                .fill(Color.white.opacity(0.28))
+                                            Capsule()
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: [AppTheme.cyan, AppTheme.blue],
+                                                        startPoint: .leading,
+                                                        endPoint: .trailing
+                                                    )
+                                                )
+                                                .frame(width: proxy.size.width * ratio)
+                                        }
+                                    }
+                                    .frame(height: 8)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(16)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .fill(store.activeFilterIndex == item.id ? Color.blue.opacity(0.14) : Color.white.opacity(0.22))
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .fill(store.activeFilterIndex == item.id ? AppTheme.blue.opacity(0.16) : Color.white.opacity(0.26))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(store.activeFilterIndex == item.id ? AppTheme.blue.opacity(0.32) : Color.white.opacity(0.20), lineWidth: 1)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -1009,7 +1162,7 @@ private struct FilterView: View {
                     }
                 }
 
-                GlassSection {
+                GlassSection(header: "滤芯编辑", subtitle: "维护寿命与安装日期") {
                     VStack(spacing: 12) {
                         GlassField(title: "滤芯名称", text: $store.filterName)
                         GlassField(title: "安装日期", text: $store.filterDate)
@@ -1017,12 +1170,12 @@ private struct FilterView: View {
                     }
                 }
 
-                GlassSection {
+                GlassSection(header: "维护操作", subtitle: "快速写入当前配置") {
                     VStack(spacing: 12) {
-                        ActionRowButton(title: "今天", style: .ghost) { store.setFilterToday() }
-                        ActionRowButton(title: "保存", style: .primary) { Task { await store.saveFilter() } }
-                        ActionRowButton(title: "重置当前", style: .secondary) { Task { await store.resetCurrentFilter() } }
-                        ActionRowButton(title: "全部重置", style: .danger) { Task { await store.resetAllFilters() } }
+                        ActionRowButton(title: "设为今天", style: .ghost, icon: "calendar") { store.setFilterToday() }
+                        ActionRowButton(title: "保存修改", style: .primary, icon: "square.and.arrow.down.fill") { Task { await store.saveFilter() } }
+                        ActionRowButton(title: "重置当前滤芯", style: .secondary, icon: "arrow.counterclockwise") { Task { await store.resetCurrentFilter() } }
+                        ActionRowButton(title: "全部恢复默认", style: .danger, icon: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90") { Task { await store.resetAllFilters() } }
                     }
                 }
             }
@@ -1038,7 +1191,7 @@ private struct SettingsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
-                GlassSection(header: "运行参数") {
+                GlassSection(header: "设备参数", subtitle: "运行节奏与阈值设定") {
                     VStack(spacing: 12) {
                         LazyVGrid(columns: columns, spacing: 12) {
                             GlassField(title: "制水超时", text: $store.mk, keyboard: .numberPad)
@@ -1051,12 +1204,12 @@ private struct SettingsView: View {
                         ToggleRow(title: "语音播报", isOn: $store.voc)
                         ToggleRow(title: "蜂鸣器", isOn: $store.buz)
                         ToggleRow(title: "TDS 模块", isOn: $store.tdsen)
-                        ActionRowButton(title: "读取", style: .ghost) { Task { await store.syncAll() } }
-                        ActionRowButton(title: "保存", style: .primary) { Task { await store.saveParams() } }
+                        ActionRowButton(title: "重新读取", style: .ghost, icon: "arrow.clockwise") { Task { await store.syncAll() } }
+                        ActionRowButton(title: "保存参数", style: .primary, icon: "checkmark.circle.fill") { Task { await store.saveParams() } }
                     }
                 }
 
-                GlassSection(header: "WiFi") {
+                GlassSection(header: "WiFi", subtitle: "无线网络与扫描列表") {
                     VStack(spacing: 12) {
                         GlassField(title: "WiFi 名称", text: $store.wifiSsid)
                         GlassSecureField(title: "WiFi 密码", text: $store.wifiPass)
@@ -1070,52 +1223,53 @@ private struct SettingsView: View {
                                         VStack(alignment: .leading, spacing: 8) {
                                             Text(network.ssid)
                                                 .font(.headline)
+                                                .foregroundStyle(AppTheme.ink)
                                             Text("\(network.rssi) dBm · \(network.secure)")
                                                 .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(AppTheme.mutedInk)
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(14)
-                                        .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                        .background(Color.white.opacity(0.24), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                                     }
                                     .buttonStyle(.plain)
                                 }
                             }
                         }
-                        ActionRowButton(title: "扫描", style: .ghost) { Task { await store.scanWifi() } }
-                        ActionRowButton(title: "保存", style: .primary) { Task { await store.saveWifi() } }
+                        ActionRowButton(title: "扫描网络", style: .ghost, icon: "dot.radiowaves.left.and.right") { Task { await store.scanWifi() } }
+                        ActionRowButton(title: "保存 WiFi", style: .primary, icon: "wifi") { Task { await store.saveWifi() } }
                     }
                 }
 
-                GlassSection(header: "时间") {
+                GlassSection(header: "时间", subtitle: "同步 NTP 或手动指定") {
                     VStack(spacing: 12) {
                         StatusChip(text: store.timeStatus)
                         GlassField(title: "手动时间", text: $store.manualTime)
-                        ActionRowButton(title: "校时", style: .ghost) { Task { await store.syncTime() } }
-                        ActionRowButton(title: "保存", style: .primary) { Task { await store.saveTime() } }
+                        ActionRowButton(title: "立即校时", style: .ghost, icon: "clock") { Task { await store.syncTime() } }
+                        ActionRowButton(title: "保存时间", style: .primary, icon: "calendar.badge.checkmark") { Task { await store.saveTime() } }
                     }
                 }
 
-                GlassSection(header: "语音") {
+                GlassSection(header: "语音", subtitle: "播报引擎与缓存状态") {
                     VStack(spacing: 12) {
                         GlassField(title: "App ID", text: $store.ttsAppid)
                         GlassSecureField(title: "Access Token", text: $store.ttsToken)
                         GlassField(title: "Voice", text: $store.ttsVoice)
                         LazyVGrid(columns: columns, spacing: 12) {
-                            MetricCard(title: "缓存进度", value: store.voiceCacheRatio)
-                            MetricCard(title: "语音状态", value: store.voiceReadyState)
-                            MetricCard(title: "TF 卡状态", value: store.voiceFlashState)
-                            MetricCard(title: "缓存启用", value: store.voiceEnabledState)
+                            MetricCard(title: "缓存进度", value: store.voiceCacheRatio, icon: "externaldrive.fill.badge.timemachine", accent: AppTheme.cyan)
+                            MetricCard(title: "语音状态", value: store.voiceReadyState, icon: "speaker.wave.2.fill", accent: AppTheme.blue)
+                            MetricCard(title: "TF 卡状态", value: store.voiceFlashState, icon: "memorychip.fill", accent: AppTheme.amber)
+                            MetricCard(title: "缓存启用", value: store.voiceEnabledState, icon: "checkmark.seal.fill", accent: AppTheme.mint)
                         }
                         StatusChip(text: store.voiceStatus)
-                        ActionRowButton(title: "保存", style: .primary) { Task { await store.saveTts() } }
-                        ActionRowButton(title: "预缓存", style: .secondary) { Task { await store.primeVoiceCache() } }
-                        ActionRowButton(title: "清空", style: .danger) { Task { await store.clearVoiceCache() } }
-                        ActionRowButton(title: "探测 TF", style: .ghost) { Task { await store.probeVoiceFlash() } }
+                        ActionRowButton(title: "保存语音设置", style: .primary, icon: "checkmark.circle.fill") { Task { await store.saveTts() } }
+                        ActionRowButton(title: "预热缓存", style: .secondary, icon: "waveform.badge.plus") { Task { await store.primeVoiceCache() } }
+                        ActionRowButton(title: "清空缓存", style: .danger, icon: "trash.fill") { Task { await store.clearVoiceCache() } }
+                        ActionRowButton(title: "检测 TF 卡", style: .ghost, icon: "magnifyingglass") { Task { await store.probeVoiceFlash() } }
                     }
                 }
 
-                GlassSection(header: "屏幕") {
+                GlassSection(header: "屏幕参数", subtitle: "坐标与开机文案") {
                     VStack(spacing: 12) {
                         LazyVGrid(columns: columns, spacing: 12) {
                             GlassField(title: "左上 X", text: $store.screenLtx, keyboard: .numberPad)
@@ -1141,8 +1295,8 @@ private struct SettingsView: View {
                             Text("270 度").tag(3)
                         }
                         .pickerStyle(.segmented)
-                        ActionRowButton(title: "读取", style: .ghost) { Task { await store.syncAll() } }
-                        ActionRowButton(title: "保存", style: .primary) { Task { await store.saveScreen() } }
+                        ActionRowButton(title: "读取坐标", style: .ghost, icon: "arrow.down.doc") { Task { await store.syncAll() } }
+                        ActionRowButton(title: "保存坐标", style: .primary, icon: "square.and.arrow.down.fill") { Task { await store.saveScreen() } }
                     }
                 }
             }
@@ -1157,28 +1311,35 @@ private struct LogsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
-                GlassSection {
+                GlassSection(header: "运行日志", subtitle: "查看设备最近状态变化") {
                     HStack {
-                        Text(store.logMeta)
-                            .font(.subheadline.weight(.semibold))
+                        StatusChip(text: store.logMeta)
                         Spacer()
                     }
-                    .padding(.bottom, 8)
 
-                    VStack(spacing: 12) {
-                        ActionRowButton(title: "刷新", style: .ghost) { Task { await store.syncAll() } }
-                        ActionRowButton(title: "清空", style: .danger) { Task { await store.clearLogs() } }
+                    HStack(spacing: 12) {
+                        ActionRowButton(title: "刷新日志", style: .ghost, icon: "arrow.clockwise") { Task { await store.syncAll() } }
+                        ActionRowButton(title: "清空日志", style: .danger, icon: "trash.fill") { Task { await store.clearLogs() } }
                     }
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(store.logs)
                             .font(.system(size: 13, weight: .regular, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.92))
+                            .foregroundStyle(Color.white.opacity(0.94))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(16)
-                            .background(Color.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                            .background(
+                                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color(red: 0.09, green: 0.12, blue: 0.19), Color(red: 0.13, green: 0.18, blue: 0.28)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            )
                     }
-                    .frame(minHeight: 340)
+                    .frame(minHeight: 360)
                 }
             }
             .padding(.bottom, 28)
@@ -1188,27 +1349,70 @@ private struct LogsView: View {
 
 private struct GlassSection<Content: View>: View {
     var header: String?
+    var subtitle: String?
     @ViewBuilder var content: Content
 
-    init(header: String? = nil, @ViewBuilder content: () -> Content) {
+    init(header: String? = nil, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
         self.header = header
+        self.subtitle = subtitle
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let header {
-                Text(header)
-                    .font(.headline)
-                    .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
+            if header != nil || subtitle != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let header {
+                        Text(header)
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(AppTheme.ink)
+                    }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.mutedInk)
+                    }
+                }
             }
             content
         }
         .padding(20)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: AppTheme.softShadow, radius: 18, y: 12)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.white.opacity(0.34), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(AppTheme.border, lineWidth: 1)
+        )
+    }
+}
+
+private struct InlinePill: View {
+    let text: String
+    let icon: String
+    let tint: Color
+    var inverted: Bool = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+            Text(text)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+        }
+        .foregroundStyle(inverted ? Color.white : tint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            Capsule()
+                .fill(inverted ? tint.opacity(0.22) : tint.opacity(0.12))
+        )
+        .overlay(
+            Capsule()
+                .stroke((inverted ? Color.white.opacity(0.16) : tint.opacity(0.16)), lineWidth: 1)
         )
     }
 }
@@ -1218,19 +1422,45 @@ private struct HeroStat: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.white.opacity(0.66))
             Text(value)
                 .font(.headline.weight(.bold))
-                .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
+                .foregroundStyle(.white)
                 .minimumScaleFactor(0.8)
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(Color.white.opacity(0.24), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(14)
+        .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct SignalPill: View {
+    let title: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.white.opacity(0.62))
+            Text(value)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.7)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
     }
 }
 
@@ -1238,23 +1468,43 @@ private struct MetricCard: View {
     let title: String
     let value: String
     var featured: Bool = false
+    var icon: String? = nil
+    var accent: Color = AppTheme.blue
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                if let icon {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(accent.opacity(featured ? 0.22 : 0.14))
+                            .frame(width: 34, height: 34)
+                        Image(systemName: icon)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(accent)
+                    }
+                }
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.mutedInk)
+                Spacer()
+            }
+
             Text(value)
                 .font(.headline.weight(.bold))
-                .foregroundStyle(Color(red: 0.08, green: 0.13, blue: 0.22))
-                .minimumScaleFactor(0.8)
+                .foregroundStyle(AppTheme.ink)
+                .minimumScaleFactor(0.76)
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(featured ? Color.blue.opacity(0.14) : Color.white.opacity(0.22))
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(featured ? accent.opacity(0.14) : Color.white.opacity(0.24))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(featured ? accent.opacity(0.16) : Color.white.opacity(0.16), lineWidth: 1)
         )
     }
 }
@@ -1263,24 +1513,36 @@ private struct CommandButton: View {
     let title: String
     let subtitle: String
     let colors: [Color]
+    var systemImage: String = "circle.fill"
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title)
-                    .font(.headline.weight(.bold))
-                Text(subtitle)
-                    .font(.subheadline)
-                    .opacity(0.92)
+            VStack(alignment: .leading, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.20))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: systemImage)
+                        .font(.system(size: 17, weight: .bold))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.headline.weight(.bold))
+                    Text(subtitle)
+                        .font(.subheadline.weight(.medium))
+                        .opacity(0.90)
+                }
             }
             .foregroundStyle(Color.white)
-            .frame(maxWidth: .infinity, minHeight: 116, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
             .padding(18)
             .background(
                 LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
             )
+            .shadow(color: colors.first?.opacity(0.22) ?? AppTheme.blue.opacity(0.18), radius: 16, y: 10)
         }
         .buttonStyle(.plain)
     }
@@ -1295,7 +1557,7 @@ private struct GlassField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.18, green: 0.30, blue: 0.46))
+                .foregroundStyle(AppTheme.mutedInk)
             TextField(title, text: $text)
                 .keyboardType(keyboard)
                 .textFieldStyle(GlassTextFieldStyle())
@@ -1311,7 +1573,7 @@ private struct GlassSecureField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.18, green: 0.30, blue: 0.46))
+                .foregroundStyle(AppTheme.mutedInk)
             SecureField(title, text: $text)
                 .textFieldStyle(GlassTextFieldStyle())
         }
@@ -1326,10 +1588,11 @@ private struct ToggleRow: View {
         Toggle(isOn: $isOn) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.ink)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Color.white.opacity(0.24), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -1342,7 +1605,7 @@ private enum RowButtonStyle {
     var foreground: Color {
         switch self {
         case .ghost:
-            return Color(red: 0.08, green: 0.13, blue: 0.22)
+            return AppTheme.ink
         default:
             return .white
         }
@@ -1351,13 +1614,13 @@ private enum RowButtonStyle {
     var background: LinearGradient {
         switch self {
         case .primary:
-            return LinearGradient(colors: [Color(red: 0.29, green: 0.66, blue: 1.0), Color(red: 0.05, green: 0.43, blue: 0.99)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            return LinearGradient(colors: [AppTheme.blue, AppTheme.cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .secondary:
-            return LinearGradient(colors: [Color(red: 0.26, green: 0.82, blue: 0.67), Color(red: 0.10, green: 0.63, blue: 0.50)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            return LinearGradient(colors: [AppTheme.mint, Color(red: 0.14, green: 0.60, blue: 0.48)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .danger:
-            return LinearGradient(colors: [Color(red: 1.0, green: 0.56, blue: 0.56), Color(red: 0.91, green: 0.35, blue: 0.35)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            return LinearGradient(colors: [AppTheme.rose, Color(red: 0.82, green: 0.20, blue: 0.31)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .ghost:
-            return LinearGradient(colors: [Color.white.opacity(0.34), Color.white.opacity(0.24)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            return LinearGradient(colors: [Color.white.opacity(0.36), Color.white.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 }
@@ -1365,16 +1628,25 @@ private enum RowButtonStyle {
 private struct ActionRowButton: View {
     let title: String
     let style: RowButtonStyle
+    var icon: String? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(style.foreground)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(style.background, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            HStack(spacing: 10) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .bold))
+                }
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(style.foreground)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .background(style.background, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -1384,12 +1656,18 @@ private struct StatusChip: View {
     let text: String
 
     var body: some View {
-        Text(text)
-            .font(.subheadline.weight(.semibold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        HStack(spacing: 8) {
+            Circle()
+                .fill(AppTheme.cyan)
+                .frame(width: 8, height: 8)
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.ink)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.24), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -1398,10 +1676,10 @@ private struct GlassTextFieldStyle: TextFieldStyle {
         configuration
             .padding(.horizontal, 16)
             .padding(.vertical, 15)
-            .background(Color.white.opacity(0.26), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(AppTheme.field, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.26), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
             )
     }
 }
