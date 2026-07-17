@@ -1,7 +1,5 @@
 import UIKit
 import SwiftUI
-import NetworkExtension
-
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -155,21 +153,25 @@ private struct LogsPayload: Decodable {
     var items: [String]?
 }
 
+private enum ServiceEndpoint {
+    static let primaryURL = URL(string: "https://ovpn.cccpc.cc")!
+    static let fallbackURL = URL(string: "http://192.168.15.119")!
+    static let candidates = [primaryURL, fallbackURL]
+    static let accessMode = "默认接入"
+}
+
 @MainActor
 private final class DeviceStore: ObservableObject {
-    private let baseURL = URL(string: "http://192.168.15.119")!
-    private let vpnController = VPNAutoController()
     private let filterNames = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"]
     private var timer: Timer?
 
     @Published var selectedTab: RootTab = .overview
     @Published var bannerText = "正在同步"
     @Published var bannerTone: BannerTone = .warn
-    @Published var vpnStatus = "VPN准备中"
 
     @Published var heroState = "连接中"
     @Published var overviewTime = "--:--"
-    @Published var overviewAddress = "192.168.15.119"
+    @Published var overviewAccess = ServiceEndpoint.accessMode
     @Published var overviewQuality = "--"
     @Published var overviewSignal = "-- dBm"
 
@@ -180,7 +182,7 @@ private final class DeviceStore: ObservableObject {
     @Published var metricTemp = "-- °C"
     @Published var metricRawTemp = "-- °C"
     @Published var metricNet = "--"
-    @Published var metricIp = "192.168.15.119"
+    @Published var metricAccess = ServiceEndpoint.accessMode
     @Published var metricTime = "--:--"
     @Published var metricRemain = "--:--"
     @Published var metricQuality = "--"
@@ -242,10 +244,6 @@ private final class DeviceStore: ObservableObject {
     @Published var logs = "暂无日志。"
 
     func bootstrap() {
-        vpnController.startIfNeeded { [weak self] status in
-            self?.vpnStatus = status
-        }
-
         Task { await syncAll() }
 
         timer?.invalidate()
@@ -522,7 +520,7 @@ private final class DeviceStore: ObservableObject {
             metricTemp = formatTemp(payload.tempPure ?? payload.temp, enabled: payload.tempen != false, installed: payload.tempPureProbe)
             metricRawTemp = formatTemp(payload.tempRaw, enabled: payload.tempen != false, installed: payload.tempRawProbe)
             metricNet = payload.net ?? "--"
-            metricIp = payload.ip ?? "192.168.15.119"
+            metricAccess = ServiceEndpoint.accessMode
             metricTime = payload.time ?? "--:--"
             metricRemain = formatDuration(payload.rem)
             metricQuality = formatQuality(payload)
@@ -530,7 +528,7 @@ private final class DeviceStore: ObservableObject {
 
             heroState = payload.state ?? "在线"
             overviewTime = payload.time ?? "--:--"
-            overviewAddress = "192.168.15.119"
+            overviewAccess = ServiceEndpoint.accessMode
             overviewQuality = formatQuality(payload)
             overviewSignal = payload.rssi.map { "\($0) dBm" } ?? "-- dBm"
         } catch {
@@ -664,7 +662,64 @@ private final class DeviceStore: ObservableObject {
         query: [String: String] = [:],
         form: [String: String] = [:]
     ) async throws -> T {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
+        let data = try await loadData(path: path, method: method, query: query, form: form)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func requestText(
+        path: String,
+        method: String = "GET",
+        query: [String: String] = [:]
+    ) async throws -> String {
+        let data = try await loadData(path: path, method: method, query: query)
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func sendRequest(
+        path: String,
+        method: String,
+        query: [String: String] = [:],
+        form: [String: String] = [:]
+    ) async throws {
+        struct Empty: Decodable {}
+        let _: Empty = try await request(path: path, method: method, query: query, form: form)
+    }
+
+    private func loadData(
+        path: String,
+        method: String,
+        query: [String: String] = [:],
+        form: [String: String] = [:]
+    ) async throws -> Data {
+        var lastError: Error = URLError(.badURL)
+
+        for baseURL in ServiceEndpoint.candidates {
+            do {
+                let request = try buildRequest(baseURL: baseURL, path: path, method: method, query: query, form: form)
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    throw URLError(.badServerResponse)
+                }
+                return data
+            } catch {
+                lastError = error
+            }
+        }
+
+        throw lastError
+    }
+
+    private func buildRequest(
+        baseURL: URL,
+        path: String,
+        method: String,
+        query: [String: String],
+        form: [String: String]
+    ) throws -> URLRequest {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
+            resolvingAgainstBaseURL: false
+        )!
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
@@ -681,44 +736,7 @@ private final class DeviceStore: ObservableObject {
             .joined(separator: "&")
             .data(using: .utf8)
         }
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return try JSONDecoder().decode(T.self, from: data)
-    }
-
-    private func requestText(
-        path: String,
-        method: String = "GET",
-        query: [String: String] = [:]
-    ) async throws -> String {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
-        if !query.isEmpty {
-            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-        }
-        guard let url = components.url else { throw URLError(.badURL) }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 12
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return String(data: data, encoding: .utf8) ?? ""
-    }
-
-    private func sendRequest(
-        path: String,
-        method: String,
-        query: [String: String] = [:],
-        form: [String: String] = [:]
-    ) async throws {
-        struct Empty: Decodable {}
-        let _: Empty = try await request(path: path, method: method, query: query, form: form)
+        return request
     }
 
     private func updateBanner(_ text: String, tone: BannerTone) {
@@ -773,260 +791,6 @@ private final class DeviceStore: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
-    }
-}
-
-private final class VPNAutoController {
-    private let providerBundleIdentifier = "com.codex.purewater.mobile.VPNExtension"
-    private let profileName = "净水智控 VPN"
-    private let username = "jingshuiji"
-    private let password = "cpc68cpc"
-    private let serverAddress = "10.16.167.43"
-    private var statusObserver: NSObjectProtocol?
-    private weak var observedConnection: NEVPNConnection?
-    private var statusUpdate: (@MainActor (String) -> Void)?
-    private var requestedConnection = false
-    private var hasConnected = false
-    private let ovpnConfiguration = """
-client
-dev-type tun
-dev tunx
-proto udp
-tun-mtu 1400
-cipher BF-CBC
-data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC:AES-128-CBC:BF-CBC
-data-ciphers-fallback BF-CBC
-comp-lzo
-remote 10.16.167.43 1194
-resolv-retry infinite
-nobind
-persist-key
-persist-tun
-verb 3
-auth-user-pass
-auth-retry nointeract
-
-<ca>
------BEGIN CERTIFICATE-----
-MIIDQTCCAimgAwIBAgIJAK8ek/1v8AgvMA0GCSqGSIb3DQEBCwUAMDcxCzAJBgNV
-BAYTAkNOMQ4wDAYDVQQKDAVpS3VhaTEYMBYGA1UEAwwPaUt1YWkgRGV2aWNlIENB
-MB4XDTIzMTIxNzE2NDczN1oXDTMzMTIxNDE2NDczN1owNzELMAkGA1UEBhMCQ04x
-DjAMBgNVBAoMBWlLdWFpMRgwFgYDVQQDDA9pS3VhaSBEZXZpY2UgQ0EwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDNw5choU05MZUfG0LCAuPui+d9LtTx
-emdmT6ei6edfofcZHl01OwjWKfAPDs5cH3nI6DBkEfzDGQdxMdO36p1FLLhpehf8
-PgA8VGOyK62dOmugdsBWLWIsFEiMQoRN88vK5Uo+oY2nVUgcO9b8QAsRcWgnvM0N
-C0gfWAc26ltCR2C2WfDQhF2kqol45qJ5GJ0xDhPm9ULYViVpFBwYsEDhVSfOQZGU
-cFgkmXmYQeZxmeB5UwGpMMkcge89FriTY4/Gp9Ii9isG0VduOlizYRcVkoOEW76i
-C4tBOBkn1zdX3ZQDvPhyc9ddqxGnyY454ldrG4AgIrgAHKYJfX0U1l5LAgMBAAGj
-UDBOMB0GA1UdDgQWBBTHvxM1lel6T0BbuGqCPW1cNcp4djAfBgNVHSMEGDAWgBTH
-vxM1lel6T0BbuGqCPW1cNcp4djAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBCwUA
-A4IBAQBhWA2cqyP233zrYvUnKVAoDnP9U0mqohBT+T4e0JDXVGCWOndukmKg6xtZ
-UgyiF+sFH3bxE64QMVblwXpl10SABRhvPk/4eEDLnPJME6fCfy5f5yy3bpJK8m6E
-1fo8tryqpnlUgU7GoeKCNKIlFVfOl97LRRrjtTBiO+51O0sVuxQr4by73BTBqb6y
-4KG4+Ed7xiWxmrtrM3kP0ycpHg+X7WDIepyghNFNpTMiZAoLbF8l0mKsgUXJPQRm
-z+NZpdUMqDWFQpAZh5XsdylpL6UGF/MGukXMM6ALSuUQJLijix5Q4ZCfxCiA0YDw
-ZrVVLyS3m/hDwCYPBkX5yW+txsg0
------END CERTIFICATE-----
-
-</ca>
-"""
-
-    func prepareAndConnect(update: @escaping @MainActor (String) -> Void) {
-        Task {
-            await update("VPN准备中")
-            do {
-                let manager = try await loadManager()
-                configure(manager: manager)
-                try await save(manager: manager)
-                await update("VPN连接中")
-
-                if manager.connection.status == .disconnected || manager.connection.status == .invalid {
-                    try manager.connection.startVPNTunnel()
-                }
-
-                await update("VPN已启动")
-            } catch {
-                await update("VPN待授权")
-            }
-        }
-    }
-
-    func startIfNeeded(update: @escaping @MainActor (String) -> Void) {
-        statusUpdate = update
-
-        Task {
-            await pushStatus("VPN 准备中")
-
-            do {
-                let manager = try await loadManager()
-                observe(connection: manager.connection)
-                configure(manager: manager)
-                try await save(manager: manager)
-                observe(connection: manager.connection)
-                await publish(status: manager.connection.status)
-
-                switch manager.connection.status {
-                case .connected, .connecting, .reasserting:
-                    return
-                case .disconnecting:
-                    await pushStatus("VPN 断开中")
-                    return
-                case .disconnected, .invalid:
-                    requestedConnection = true
-                    hasConnected = false
-                    await pushStatus("VPN 连接中")
-                    try manager.connection.startVPNTunnel()
-                    await publish(status: manager.connection.status)
-                @unknown default:
-                    await pushStatus("VPN 状态未知")
-                }
-            } catch {
-                requestedConnection = false
-                hasConnected = false
-                await pushStatus(message(for: error))
-            }
-        }
-    }
-
-    private func configure(manager: NETunnelProviderManager) {
-        let tunnel = NETunnelProviderProtocol()
-        tunnel.providerBundleIdentifier = providerBundleIdentifier
-        tunnel.serverAddress = serverAddress
-        tunnel.username = username
-        tunnel.disconnectOnSleep = false
-        tunnel.providerConfiguration = [
-            "ovpn": Data(ovpnConfiguration.utf8),
-            "username": username,
-            "password": password,
-        ]
-
-        manager.localizedDescription = profileName
-        manager.protocolConfiguration = tunnel
-        manager.isEnabled = true
-        manager.isOnDemandEnabled = false
-        manager.onDemandRules = []
-    }
-
-    private func loadManager() async throws -> NETunnelProviderManager {
-        let managers: [NETunnelProviderManager] = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[NETunnelProviderManager], Error>) in
-            NETunnelProviderManager.loadAllFromPreferences { managers, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: managers ?? [])
-                }
-            }
-        }
-
-        if let manager = managers.first(where: { $0.localizedDescription == profileName }) {
-            return manager
-        }
-        return NETunnelProviderManager()
-    }
-
-    private func save(manager: NETunnelProviderManager) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            manager.saveToPreferences { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            manager.loadFromPreferences { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
-    }
-
-    private func observe(connection: NEVPNConnection) {
-        guard observedConnection !== connection else { return }
-
-        if let statusObserver {
-            NotificationCenter.default.removeObserver(statusObserver)
-        }
-
-        observedConnection = connection
-        statusObserver = NotificationCenter.default.addObserver(
-            forName: .NEVPNStatusDidChange,
-            object: connection,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task {
-                await self.publish(status: connection.status)
-            }
-        }
-    }
-
-    private func publish(status: NEVPNStatus) async {
-        switch status {
-        case .invalid:
-            await pushStatus("VPN 配置无效")
-        case .disconnected:
-            if requestedConnection && !hasConnected {
-                requestedConnection = false
-                await pushStatus("VPN 连接失败")
-            } else if hasConnected {
-                hasConnected = false
-                await pushStatus("VPN 已断开")
-            } else {
-                await pushStatus("VPN 未连接")
-            }
-        case .connecting:
-            requestedConnection = true
-            await pushStatus("VPN 连接中")
-        case .connected:
-            requestedConnection = false
-            hasConnected = true
-            await pushStatus("VPN 已连接")
-        case .reasserting:
-            requestedConnection = true
-            await pushStatus("VPN 重连中")
-        case .disconnecting:
-            await pushStatus("VPN 断开中")
-        @unknown default:
-            await pushStatus("VPN 状态未知")
-        }
-    }
-
-    private func pushStatus(_ text: String) async {
-        guard let statusUpdate else { return }
-        await statusUpdate(text)
-    }
-
-    private func message(for error: Error) -> String {
-        let nsError = error as NSError
-
-        if nsError.domain == NEVPNErrorDomain {
-            switch NEVPNError.Code(rawValue: nsError.code) {
-            case .configurationInvalid:
-                return "VPN 配置无效"
-            case .configurationDisabled:
-                return "VPN 配置被禁用"
-            case .connectionFailed:
-                return "VPN 连接失败"
-            case .configurationStale:
-                return "VPN 配置过期"
-            case .configurationReadWriteFailed:
-                return "VPN 配置写入失败"
-            case .configurationUnknown:
-                return "VPN 配置异常"
-            case .none:
-                break
-            @unknown default:
-                break
-            }
-        }
-
-        return "VPN 连接失败"
     }
 }
 
@@ -1099,12 +863,6 @@ private struct RootView: View {
 
             Spacer()
 
-            Text(store.vpnStatus)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial, in: Capsule())
-
             Button {
                 Task { await store.syncAll() }
             } label: {
@@ -1171,7 +929,7 @@ private struct OverviewView: View {
 
                         LazyVGrid(columns: columns, spacing: 14) {
                             HeroStat(title: "当前时间", value: store.overviewTime)
-                            HeroStat(title: "设备地址", value: store.overviewAddress)
+                            HeroStat(title: "接入方式", value: store.overviewAccess)
                             HeroStat(title: "纯水判定", value: store.overviewQuality)
                             HeroStat(title: "信号强度", value: store.overviewSignal)
                         }
@@ -1207,7 +965,7 @@ private struct OverviewView: View {
                         MetricCard(title: "剩余时间", value: store.metricRemain)
                         MetricCard(title: "纯水判定", value: store.metricQuality)
                         MetricCard(title: "信号强度", value: store.metricRssi)
-                        MetricCard(title: "设备地址", value: store.metricIp)
+                        MetricCard(title: "接入方式", value: store.metricAccess)
                         MetricCard(title: "水位状态", value: store.metricWater)
                     }
                 }
