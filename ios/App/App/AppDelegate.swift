@@ -154,9 +154,8 @@ private struct LogsPayload: Decodable {
 }
 
 private enum ServiceEndpoint {
-    static let primaryURL = URL(string: "http://ik.cccpc.cc:18080")!
-    static let fallbackURL = URL(string: "http://192.168.15.119")!
-    static let candidates = [primaryURL, fallbackURL]
+    static let primaryURL = URL(string: "http://192.168.15.119")!
+    static let candidates = [primaryURL]
     static let accessMode = "默认接入"
 }
 

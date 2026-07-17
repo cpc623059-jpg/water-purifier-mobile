@@ -26,16 +26,6 @@
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>ik.cccpc.cc</key>
-			<dict>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-			</dict>
-		</dict>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于连接家中净水器设备并读取、控制局域网内的设备状态。</string>
