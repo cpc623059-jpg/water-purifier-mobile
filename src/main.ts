@@ -184,16 +184,10 @@ root.innerHTML = `
       <div class="brand-block">
         <div class="brand-head">
           <p class="app-title">净水智控</p>
-          <div class="top-chip-row">
-            <span class="runtime-pill access-pill" id="topAccess">局域网优先</span>
-            <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
-          </div>
+          <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
         </div>
         <div class="brand-bottom">
-          <div class="top-copy-block">
-            <h1 class="top-state" id="overviewState">待机</h1>
-            <p class="top-caption" id="topCaption">自动接入</p>
-          </div>
+          <h1 class="top-state" id="overviewState">待机</h1>
           <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
         </div>
       </div>
@@ -632,13 +626,13 @@ function renderScreenFields(): void {
 }
 
 async function syncAll(): Promise<void> {
-  updateStatusLine("正在同步", "warn");
+  updateStatusLine("", "ok");
   await loadStatus();
   const results = await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
   schedulePolling();
   const failedCount = results.filter((result) => result.status === "rejected").length;
   if (failedCount > 0) {
-    updateStatusLine(`部分同步完成，${failedCount} 项需要重试`, "warn");
+    updateStatusLine(`部分数据未连通`, "warn");
     return;
   }
   updateStatusLine("", "ok");
@@ -686,8 +680,6 @@ async function loadStatus(): Promise<void> {
     setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
     setText("overviewState", data.state || "待机");
     applyHeroNetState(formatOnlineLabel(data), data.net?.includes("离线") ? "offline" : "online");
-    setText("topAccess", accessMode);
-    setText("topCaption", appState.activeBaseUrl || "自动接入");
     setText("overviewTime", data.time || "--:--");
     setText("overviewWater", data.water || "--");
     setText("overviewQuality", formatTdsQuality(data));
@@ -699,8 +691,6 @@ async function loadStatus(): Promise<void> {
     setText("metricState", "离线");
     setText("metricNet", "--");
     setText("metricRssi", "-- dBm");
-    setText("topAccess", "连接失败");
-    setText("topCaption", appState.activeBaseUrl || PRIMARY_BASE_URL);
     if (!appState.hasLoadedStatus) {
       setText("overviewState", "未连接");
     }
@@ -1024,8 +1014,8 @@ async function requestWithBaseUrl<T>(baseUrl: string, path: string, options: Req
       headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
       data: body.size ? body.toString() : undefined,
       responseType: "text",
-      readTimeout: 5000,
-      connectTimeout: 5000,
+      readTimeout: 1800,
+      connectTimeout: 1800,
     });
     if (response.status >= 400) {
       throw new Error(`请求失败：HTTP ${response.status}`);
