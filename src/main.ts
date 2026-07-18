@@ -115,13 +115,11 @@ interface WifiScanResult {
   list?: Array<{ ssid: string; rssi: number; secure: string }>;
 }
 
-const ENDPOINT_STORAGE_KEY = "water-purifier-endpoint";
+const PRIMARY_BASE_URL = "http://192.168.15.119";
 const FALLBACK_BASE_URLS = [
-  "http://192.168.15.119",
-  "http://192.168.4.1",
+  PRIMARY_BASE_URL,
   "http://ik.cccpc.cc:18080",
-  "http://ik.cccpc.cc:18081",
-  "http://ik.cccpc.cc",
+  "http://192.168.4.1",
 ];
 const STATUS_POLL_MS = 5000;
 const COMMAND_LABELS: Record<string, string> = {
@@ -166,7 +164,6 @@ const appState = {
   wifiHasSavedPassword: false,
   savedWifiSsid: "",
   pollTimer: 0 as number | undefined,
-  baseUrlOverride: "",
   activeBaseUrl: "",
   hasLoadedStatus: false,
 };
@@ -187,10 +184,16 @@ root.innerHTML = `
       <div class="brand-block">
         <div class="brand-head">
           <p class="app-title">净水智控</p>
-          <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
+          <div class="top-chip-row">
+            <span class="runtime-pill access-pill" id="topAccess">局域网优先</span>
+            <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
+          </div>
         </div>
         <div class="brand-bottom">
-          <h1 class="top-state" id="overviewState">待机</h1>
+          <div class="top-copy-block">
+            <h1 class="top-state" id="overviewState">待机</h1>
+            <p class="top-caption" id="topCaption">自动接入</p>
+          </div>
           <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
         </div>
       </div>
@@ -243,24 +246,31 @@ root.innerHTML = `
           </div>
         </section>
 
-        <section class="glass-card">
+        <section class="glass-card control-panel">
           <div class="section-head">
-            <h3>快捷控制</h3>
+            <div>
+              <h3>快捷控制</h3>
+              <p>常用操作</p>
+            </div>
           </div>
           <div class="action-grid">
             <button class="action-card action-make" data-command="make" type="button">
+              <span class="action-card-icon">▶</span>
               <strong>手动制水</strong>
               <span>开始</span>
             </button>
             <button class="action-card action-wash" data-command="wash" type="button">
+              <span class="action-card-icon">⟳</span>
               <strong>手动冲洗</strong>
               <span>执行</span>
             </button>
             <button class="action-card action-stop" data-command="stop" type="button">
+              <span class="action-card-icon">■</span>
               <strong>停止运行</strong>
               <span>结束</span>
             </button>
             <button class="action-card action-reset" data-command="reset" type="button">
+              <span class="action-card-icon">↺</span>
               <strong>复位</strong>
               <span>重置</span>
             </button>
@@ -370,23 +380,6 @@ root.innerHTML = `
             <button id="loadParamsBtn" class="btn ghost" type="button">读取</button>
             <button id="saveParamsBtn" class="btn primary" type="button">保存</button>
           </div>
-        </section>
-
-        <section class="glass-card">
-          <div class="section-head">
-            <h3>接入地址</h3>
-            <p>内网、热点或远程入口</p>
-          </div>
-          <label class="field wide">
-            <span>设备地址</span>
-            <input id="endpointUrl" type="text" placeholder="http://192.168.15.119" />
-          </label>
-          <div class="button-row">
-            <button id="testEndpointBtn" class="btn ghost" type="button">测试</button>
-            <button id="saveEndpointBtn" class="btn primary" type="button">保存地址</button>
-            <button id="resetEndpointBtn" class="btn secondary" type="button">恢复候选</button>
-          </div>
-          <p class="status-line compact" id="endpointStatus">--</p>
         </section>
 
         <section class="glass-card">
@@ -545,9 +538,10 @@ window.addEventListener("unhandledrejection", (event) => {
 
 try {
   renderScreenFields();
-  hydrateEndpointSettings();
+  initializeNetworkTargets();
   bindTabs();
   bindActions();
+  bindGlassMotion();
   syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
 } catch (error) {
   renderFatalScreen(describeError(error));
@@ -586,9 +580,6 @@ function bindActions(): void {
 
   getButton("loadParamsBtn").addEventListener("click", () => loadParams().catch(handleError));
   getButton("saveParamsBtn").addEventListener("click", () => saveParams().catch(handleError));
-  getButton("testEndpointBtn").addEventListener("click", () => testEndpoint().catch(handleError));
-  getButton("saveEndpointBtn").addEventListener("click", () => saveEndpoint().catch(handleError));
-  getButton("resetEndpointBtn").addEventListener("click", () => resetEndpoint().catch(handleError));
   getButton("filterTodayBtn").addEventListener("click", setFilterToday);
   getButton("saveFilterBtn").addEventListener("click", () => saveCurrentFilter().catch(handleError));
   getButton("resetFilterBtn").addEventListener("click", () => resetCurrentFilter().catch(handleError));
@@ -607,48 +598,25 @@ function bindActions(): void {
   getButton("clearLogsBtn").addEventListener("click", () => clearLogs().catch(handleError));
 }
 
-function hydrateEndpointSettings(): void {
-  const saved = readStoredBaseUrl();
-  appState.baseUrlOverride = saved;
-  appState.activeBaseUrl = saved;
-  setFieldValue("endpointUrl", saved);
-  setStatusMessage("endpointStatus", saved ? `已保存 ${saved}` : "使用自动候选地址", "ok");
+function bindGlassMotion(): void {
+  const rootStyle = document.documentElement.style;
+  const updateGlass = (): void => {
+    const y = window.scrollY || 0;
+    const x = Math.sin(y / 90) * 8;
+    const drift = Math.min(y / 260, 1);
+    rootStyle.setProperty("--glass-pan-x", `${x.toFixed(2)}px`);
+    rootStyle.setProperty("--glass-pan-y", `${(y * 0.08).toFixed(2)}px`);
+    rootStyle.setProperty("--glass-drift", drift.toFixed(3));
+    rootStyle.setProperty("--glass-glow-x", `${50 + Math.sin(y / 140) * 10}%`);
+    rootStyle.setProperty("--glass-glow-y", `${18 + Math.cos(y / 180) * 10}%`);
+  };
+  updateGlass();
+  window.addEventListener("scroll", updateGlass, { passive: true });
+}
+
+function initializeNetworkTargets(): void {
+  appState.activeBaseUrl = PRIMARY_BASE_URL;
   applyHeroNetState("待连接", "pending");
-}
-
-async function testEndpoint(): Promise<void> {
-  const baseUrl = normalizeBaseUrl(getFieldValue("endpointUrl"));
-  if (!baseUrl) {
-    setStatusMessage("endpointStatus", "请输入有效地址", "warn");
-    return;
-  }
-  await requestWithBaseUrl<StatusData>(baseUrl, "/api/status");
-  appState.activeBaseUrl = baseUrl;
-  appState.hasLoadedStatus = false;
-  setStatusMessage("endpointStatus", `连接成功：${baseUrl}`, "ok");
-  await loadStatus();
-}
-
-async function saveEndpoint(): Promise<void> {
-  const baseUrl = normalizeBaseUrl(getFieldValue("endpointUrl"));
-  if (!baseUrl) {
-    setStatusMessage("endpointStatus", "请输入有效地址", "warn");
-    return;
-  }
-  storeBaseUrl(baseUrl);
-  appState.baseUrlOverride = baseUrl;
-  appState.activeBaseUrl = baseUrl;
-  setStatusMessage("endpointStatus", `已保存 ${baseUrl}`, "ok");
-  await syncAll();
-}
-
-async function resetEndpoint(): Promise<void> {
-  clearStoredBaseUrl();
-  appState.baseUrlOverride = "";
-  appState.activeBaseUrl = "";
-  setFieldValue("endpointUrl", "");
-  setStatusMessage("endpointStatus", "已恢复自动候选地址", "ok");
-  await syncAll();
 }
 
 function renderScreenFields(): void {
@@ -718,18 +686,21 @@ async function loadStatus(): Promise<void> {
     setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
     setText("overviewState", data.state || "待机");
     applyHeroNetState(formatOnlineLabel(data), data.net?.includes("离线") ? "offline" : "online");
+    setText("topAccess", accessMode);
+    setText("topCaption", appState.activeBaseUrl || "自动接入");
     setText("overviewTime", data.time || "--:--");
     setText("overviewWater", data.water || "--");
     setText("overviewQuality", formatTdsQuality(data));
     setText("overviewAccess", accessMode);
     setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
     setText("heroRemain", formatDuration(data.rem));
-    setStatusMessage("endpointStatus", `当前地址：${appState.activeBaseUrl || appState.baseUrlOverride || FALLBACK_BASE_URLS[0]}`, "ok");
   } catch (error) {
     applyHeroNetState("离线", "offline");
     setText("metricState", "离线");
     setText("metricNet", "--");
     setText("metricRssi", "-- dBm");
+    setText("topAccess", "连接失败");
+    setText("topCaption", appState.activeBaseUrl || PRIMARY_BASE_URL);
     if (!appState.hasLoadedStatus) {
       setText("overviewState", "未连接");
     }
@@ -1139,14 +1110,14 @@ function formatClock(date: Date): string {
 
 function getConfiguredGatewayHost(): string {
   try {
-    return new URL(appState.activeBaseUrl || appState.baseUrlOverride || FALLBACK_BASE_URLS[0]).host;
+    return new URL(appState.activeBaseUrl || FALLBACK_BASE_URLS[0]).host;
   } catch {
-    return appState.activeBaseUrl || appState.baseUrlOverride || FALLBACK_BASE_URLS[0];
+    return appState.activeBaseUrl || FALLBACK_BASE_URLS[0];
   }
 }
 
 function resolveBaseUrlCandidates(): string[] {
-  const values = [appState.activeBaseUrl, appState.baseUrlOverride, ...FALLBACK_BASE_URLS]
+  const values = [appState.activeBaseUrl, PRIMARY_BASE_URL, ...FALLBACK_BASE_URLS]
     .map((value) => normalizeBaseUrl(value))
     .filter(Boolean);
   return Array.from(new Set(values));
@@ -1164,30 +1135,6 @@ function normalizeBaseUrl(value: string): string {
     return url.toString().replace(/\/$/, "");
   } catch {
     return "";
-  }
-}
-
-function readStoredBaseUrl(): string {
-  try {
-    return normalizeBaseUrl(window.localStorage.getItem(ENDPOINT_STORAGE_KEY) || "");
-  } catch {
-    return "";
-  }
-}
-
-function storeBaseUrl(value: string): void {
-  try {
-    window.localStorage.setItem(ENDPOINT_STORAGE_KEY, value);
-  } catch {
-    return;
-  }
-}
-
-function clearStoredBaseUrl(): void {
-  try {
-    window.localStorage.removeItem(ENDPOINT_STORAGE_KEY);
-  } catch {
-    return;
   }
 }
 
