@@ -15,6 +15,11 @@
   --teal: #25b78f;
   --amber: #f0a330;
   --danger: #ea5a5a;
+  --glass-pan-x: 0px;
+  --glass-pan-y: 0px;
+  --glass-drift: 0;
+  --glass-glow-x: 50%;
+  --glass-glow-y: 20%;
 }
 
 * {
@@ -110,8 +115,9 @@ code {
   position: relative;
   z-index: 1;
   overflow: hidden;
-  backdrop-filter: blur(34px) saturate(1.4);
-  -webkit-backdrop-filter: blur(34px) saturate(1.4);
+  backdrop-filter: blur(32px) saturate(1.55);
+  -webkit-backdrop-filter: blur(32px) saturate(1.55);
+  transform: translateZ(0);
 }
 
 .topbar::before,
@@ -120,11 +126,12 @@ code {
 .bottom-nav::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -14%;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.18) 52%, rgba(138, 188, 255, 0.14)),
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(113, 179, 255, 0.16), transparent 30%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.16) 52%, rgba(138, 188, 255, 0.16)),
+    radial-gradient(circle at var(--glass-glow-x) var(--glass-glow-y), rgba(255, 255, 255, 0.94), transparent 28%),
+    radial-gradient(circle at calc(var(--glass-glow-x) + 18%) 86%, rgba(113, 179, 255, 0.18), transparent 30%);
+  transform: translate3d(var(--glass-pan-x), var(--glass-pan-y), 0) scale(1.02);
   pointer-events: none;
 }
 
@@ -147,9 +154,12 @@ code {
   align-items: center;
   padding: 18px 18px 16px;
   border-radius: 40px;
+  position: sticky;
+  top: 10px;
+  z-index: 8;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.12)),
-    linear-gradient(135deg, rgba(146, 203, 255, 0.18), rgba(255, 255, 255, 0.04));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.1)),
+    linear-gradient(135deg, rgba(146, 203, 255, 0.14), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--glass-border);
   box-shadow:
     var(--shadow),
@@ -224,6 +234,40 @@ code {
   align-content: center;
   gap: 8px;
   min-width: 0;
+}
+
+.top-chip-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.access-pill {
+  color: #3aa6e3;
+  background: rgba(92, 196, 255, 0.16);
+  border-color: rgba(117, 210, 255, 0.26);
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-copy-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.top-caption {
+  margin: 0;
+  color: rgba(74, 98, 138, 0.78);
+  font-size: 0.96rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-head,
@@ -414,6 +458,21 @@ code {
 .glass-card {
   margin-top: 16px;
   padding: 22px;
+}
+
+.control-panel {
+  background:
+    linear-gradient(180deg, rgba(19, 31, 55, 0.86), rgba(24, 30, 44, 0.82)),
+    linear-gradient(135deg, rgba(74, 165, 255, 0.12), rgba(34, 215, 181, 0.08));
+  border-color: rgba(173, 215, 255, 0.12);
+  box-shadow:
+    0 28px 52px rgba(11, 18, 33, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.control-panel .section-head h3,
+.control-panel .section-head p {
+  color: rgba(235, 243, 255, 0.92);
 }
 
 .section-head {
@@ -613,15 +672,16 @@ code {
 .action-grid {
   margin-top: 20px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .action-card {
   position: relative;
   overflow: hidden;
-  min-height: 148px;
-  padding: 22px;
+  min-height: 122px;
+  padding: 18px;
   border: none;
-  border-radius: 34px;
+  border-radius: 30px;
   cursor: pointer;
   text-align: left;
   color: #fff;
@@ -630,6 +690,20 @@ code {
     transform 180ms ease,
     box-shadow 180ms ease,
     filter 180ms ease;
+}
+
+.action-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  font-size: 1.45rem;
+  line-height: 1;
 }
 
 .action-card::before {
@@ -649,8 +723,8 @@ code {
 
 .action-card strong {
   display: block;
-  font-size: 1.28rem;
-  margin-bottom: 12px;
+  font-size: 1.12rem;
+  margin-bottom: 8px;
 }
 
 .action-card span {
@@ -987,6 +1061,12 @@ code {
   }
 
   .brand-bottom {
+    flex-wrap: wrap;
+  }
+
+  .top-chip-row {
+    width: 100%;
+    justify-content: flex-start;
     flex-wrap: wrap;
   }
 
