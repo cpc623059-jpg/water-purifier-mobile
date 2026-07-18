@@ -115,7 +115,14 @@ interface WifiScanResult {
   list?: Array<{ ssid: string; rssi: number; secure: string }>;
 }
 
-const STATIC_BASE_URL = "http://ik.cccpc.cc:18081";
+const ENDPOINT_STORAGE_KEY = "water-purifier-endpoint";
+const FALLBACK_BASE_URLS = [
+  "http://192.168.15.119",
+  "http://192.168.4.1",
+  "http://ik.cccpc.cc:18080",
+  "http://ik.cccpc.cc:18081",
+  "http://ik.cccpc.cc",
+];
 const STATUS_POLL_MS = 5000;
 const COMMAND_LABELS: Record<string, string> = {
   make: "手动制水",
@@ -159,6 +166,9 @@ const appState = {
   wifiHasSavedPassword: false,
   savedWifiSsid: "",
   pollTimer: 0 as number | undefined,
+  baseUrlOverride: "",
+  activeBaseUrl: "",
+  hasLoadedStatus: false,
 };
 
 const root = document.querySelector<HTMLDivElement>("#app");
@@ -177,7 +187,7 @@ root.innerHTML = `
       <div class="brand-block">
         <div class="brand-head">
           <p class="app-title">净水智控</p>
-          <span class="runtime-pill online-pill" id="heroNet">在线</span>
+          <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
         </div>
         <div class="brand-bottom">
           <h1 class="top-state" id="overviewState">待机</h1>
@@ -364,6 +374,23 @@ root.innerHTML = `
 
         <section class="glass-card">
           <div class="section-head">
+            <h3>接入地址</h3>
+            <p>内网、热点或远程入口</p>
+          </div>
+          <label class="field wide">
+            <span>设备地址</span>
+            <input id="endpointUrl" type="text" placeholder="http://192.168.15.119" />
+          </label>
+          <div class="button-row">
+            <button id="testEndpointBtn" class="btn ghost" type="button">测试</button>
+            <button id="saveEndpointBtn" class="btn primary" type="button">保存地址</button>
+            <button id="resetEndpointBtn" class="btn secondary" type="button">恢复候选</button>
+          </div>
+          <p class="status-line compact" id="endpointStatus">--</p>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-head">
             <h3>WiFi</h3>
             <p>无线网络与扫描列表</p>
           </div>
@@ -518,6 +545,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 try {
   renderScreenFields();
+  hydrateEndpointSettings();
   bindTabs();
   bindActions();
   syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
@@ -558,6 +586,9 @@ function bindActions(): void {
 
   getButton("loadParamsBtn").addEventListener("click", () => loadParams().catch(handleError));
   getButton("saveParamsBtn").addEventListener("click", () => saveParams().catch(handleError));
+  getButton("testEndpointBtn").addEventListener("click", () => testEndpoint().catch(handleError));
+  getButton("saveEndpointBtn").addEventListener("click", () => saveEndpoint().catch(handleError));
+  getButton("resetEndpointBtn").addEventListener("click", () => resetEndpoint().catch(handleError));
   getButton("filterTodayBtn").addEventListener("click", setFilterToday);
   getButton("saveFilterBtn").addEventListener("click", () => saveCurrentFilter().catch(handleError));
   getButton("resetFilterBtn").addEventListener("click", () => resetCurrentFilter().catch(handleError));
@@ -574,6 +605,50 @@ function bindActions(): void {
   getButton("saveScreenBtn").addEventListener("click", () => saveScreen().catch(handleError));
   getButton("refreshLogsBtn").addEventListener("click", () => loadLogs().catch(handleError));
   getButton("clearLogsBtn").addEventListener("click", () => clearLogs().catch(handleError));
+}
+
+function hydrateEndpointSettings(): void {
+  const saved = readStoredBaseUrl();
+  appState.baseUrlOverride = saved;
+  appState.activeBaseUrl = saved;
+  setFieldValue("endpointUrl", saved);
+  setStatusMessage("endpointStatus", saved ? `已保存 ${saved}` : "使用自动候选地址", "ok");
+  applyHeroNetState("待连接", "pending");
+}
+
+async function testEndpoint(): Promise<void> {
+  const baseUrl = normalizeBaseUrl(getFieldValue("endpointUrl"));
+  if (!baseUrl) {
+    setStatusMessage("endpointStatus", "请输入有效地址", "warn");
+    return;
+  }
+  await requestWithBaseUrl<StatusData>(baseUrl, "/api/status");
+  appState.activeBaseUrl = baseUrl;
+  appState.hasLoadedStatus = false;
+  setStatusMessage("endpointStatus", `连接成功：${baseUrl}`, "ok");
+  await loadStatus();
+}
+
+async function saveEndpoint(): Promise<void> {
+  const baseUrl = normalizeBaseUrl(getFieldValue("endpointUrl"));
+  if (!baseUrl) {
+    setStatusMessage("endpointStatus", "请输入有效地址", "warn");
+    return;
+  }
+  storeBaseUrl(baseUrl);
+  appState.baseUrlOverride = baseUrl;
+  appState.activeBaseUrl = baseUrl;
+  setStatusMessage("endpointStatus", `已保存 ${baseUrl}`, "ok");
+  await syncAll();
+}
+
+async function resetEndpoint(): Promise<void> {
+  clearStoredBaseUrl();
+  appState.baseUrlOverride = "";
+  appState.activeBaseUrl = "";
+  setFieldValue("endpointUrl", "");
+  setStatusMessage("endpointStatus", "已恢复自动候选地址", "ok");
+  await syncAll();
 }
 
 function renderScreenFields(): void {
@@ -624,29 +699,42 @@ function schedulePolling(): void {
 }
 
 async function loadStatus(): Promise<void> {
-  const data = await apiRequest<StatusData>("/api/status");
-  const accessMode = formatAccessMode(data);
-  setText("metricState", data.state || "--");
-  setText("metricNet", data.net || "--");
-  setText("metricTime", data.time || "--:--");
-  setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
-  setText("metricRawTds", `原水 ${formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe)}`);
-  setText("metricRawTdsCard", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
-  setText("metricTemp", formatTempValue(data.tempPure ?? data.temp, data.tempen !== false, data.tempPureProbe));
-  setText("metricRawTemp", formatTempValue(data.tempRaw, data.tempen !== false, data.tempRawProbe));
-  setText("metricWater", data.water || "--");
-  setText("metricRemain", formatDuration(data.rem));
-  setText("metricQuality", formatTdsQuality(data));
-  setText("metricAccess", accessMode);
-  setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
-  setText("overviewState", data.state || "待机");
-  setText("heroNet", formatOnlineLabel(data));
-  setText("overviewTime", data.time || "--:--");
-  setText("overviewWater", data.water || "--");
-  setText("overviewQuality", formatTdsQuality(data));
-  setText("overviewAccess", accessMode);
-  setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
-  setText("heroRemain", formatDuration(data.rem));
+  try {
+    const data = await apiRequest<StatusData>("/api/status");
+    const accessMode = formatAccessMode(data);
+    appState.hasLoadedStatus = true;
+    setText("metricState", data.state || "--");
+    setText("metricNet", data.net || "--");
+    setText("metricTime", data.time || "--:--");
+    setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
+    setText("metricRawTds", `原水 ${formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe)}`);
+    setText("metricRawTdsCard", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
+    setText("metricTemp", formatTempValue(data.tempPure ?? data.temp, data.tempen !== false, data.tempPureProbe));
+    setText("metricRawTemp", formatTempValue(data.tempRaw, data.tempen !== false, data.tempRawProbe));
+    setText("metricWater", data.water || "--");
+    setText("metricRemain", formatDuration(data.rem));
+    setText("metricQuality", formatTdsQuality(data));
+    setText("metricAccess", accessMode);
+    setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
+    setText("overviewState", data.state || "待机");
+    applyHeroNetState(formatOnlineLabel(data), data.net?.includes("离线") ? "offline" : "online");
+    setText("overviewTime", data.time || "--:--");
+    setText("overviewWater", data.water || "--");
+    setText("overviewQuality", formatTdsQuality(data));
+    setText("overviewAccess", accessMode);
+    setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
+    setText("heroRemain", formatDuration(data.rem));
+    setStatusMessage("endpointStatus", `当前地址：${appState.activeBaseUrl || appState.baseUrlOverride || FALLBACK_BASE_URLS[0]}`, "ok");
+  } catch (error) {
+    applyHeroNetState("离线", "offline");
+    setText("metricState", "离线");
+    setText("metricNet", "--");
+    setText("metricRssi", "-- dBm");
+    if (!appState.hasLoadedStatus) {
+      setText("overviewState", "未连接");
+    }
+    throw error;
+  }
 }
 
 async function loadParams(): Promise<void> {
@@ -928,7 +1016,22 @@ async function clearLogs(): Promise<void> {
 }
 
 async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const url = new URL(path, `${STATIC_BASE_URL}/`);
+  const candidates = resolveBaseUrlCandidates();
+  let lastError: unknown = null;
+  for (const baseUrl of candidates) {
+    try {
+      const result = await requestWithBaseUrl<T>(baseUrl, path, options);
+      appState.activeBaseUrl = baseUrl;
+      return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("请求失败");
+}
+
+async function requestWithBaseUrl<T>(baseUrl: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const url = new URL(path, `${baseUrl}/`);
   Object.entries(options.query || {}).forEach(([key, value]) => {
     if (value === null || value === undefined || value === "") return;
     url.searchParams.set(key, String(value));
@@ -950,8 +1053,8 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
       headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
       data: body.size ? body.toString() : undefined,
       responseType: "text",
-      readTimeout: 12000,
-      connectTimeout: 12000,
+      readTimeout: 5000,
+      connectTimeout: 5000,
     });
     if (response.status >= 400) {
       throw new Error(`请求失败：HTTP ${response.status}`);
@@ -972,10 +1075,11 @@ async function apiRequest<T = unknown>(path: string, options: RequestOptions = {
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`);
   }
+  const raw = await response.text();
   if (expect === "text") {
-    return (await response.text()) as T;
+    return raw as T;
   }
-  return parseJsonPayload<T>(await response.text(), allowEmpty);
+  return parseJsonPayload<T>(raw, allowEmpty);
 }
 
 function formatTdsValue(value: number | undefined, enabled: boolean, probePresent: boolean | undefined): string {
@@ -1035,10 +1139,65 @@ function formatClock(date: Date): string {
 
 function getConfiguredGatewayHost(): string {
   try {
-    return new URL(STATIC_BASE_URL).host;
+    return new URL(appState.activeBaseUrl || appState.baseUrlOverride || FALLBACK_BASE_URLS[0]).host;
   } catch {
-    return STATIC_BASE_URL;
+    return appState.activeBaseUrl || appState.baseUrlOverride || FALLBACK_BASE_URLS[0];
   }
+}
+
+function resolveBaseUrlCandidates(): string[] {
+  const values = [appState.activeBaseUrl, appState.baseUrlOverride, ...FALLBACK_BASE_URLS]
+    .map((value) => normalizeBaseUrl(value))
+    .filter(Boolean);
+  return Array.from(new Set(values));
+}
+
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const input = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  try {
+    const url = new URL(input);
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function readStoredBaseUrl(): string {
+  try {
+    return normalizeBaseUrl(window.localStorage.getItem(ENDPOINT_STORAGE_KEY) || "");
+  } catch {
+    return "";
+  }
+}
+
+function storeBaseUrl(value: string): void {
+  try {
+    window.localStorage.setItem(ENDPOINT_STORAGE_KEY, value);
+  } catch {
+    return;
+  }
+}
+
+function clearStoredBaseUrl(): void {
+  try {
+    window.localStorage.removeItem(ENDPOINT_STORAGE_KEY);
+  } catch {
+    return;
+  }
+}
+
+function applyHeroNetState(label: string, tone: "online" | "offline" | "pending"): void {
+  const element = getElement<HTMLElement>("heroNet");
+  element.textContent = label;
+  element.classList.remove("online-pill", "offline-pill", "pending-pill");
+  if (tone === "online") element.classList.add("online-pill");
+  if (tone === "offline") element.classList.add("offline-pill");
+  if (tone === "pending") element.classList.add("pending-pill");
 }
 
 function parseJsonPayload<T>(raw: string, allowEmpty: boolean): T {
