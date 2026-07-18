@@ -80,7 +80,7 @@ code {
   max-width: 920px;
   margin: 0 auto;
   min-height: 100vh;
-  padding: 22px 18px 124px;
+  padding: calc(18px + env(safe-area-inset-top, 0px)) 18px calc(124px + env(safe-area-inset-bottom, 0px));
 }
 
 .ambient {
@@ -155,7 +155,7 @@ code {
   padding: 18px 18px 16px;
   border-radius: 40px;
   position: sticky;
-  top: 10px;
+  top: calc(8px + env(safe-area-inset-top, 0px));
   z-index: 8;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.1)),
@@ -955,7 +955,7 @@ code {
 .bottom-nav {
   position: fixed;
   left: 50%;
-  bottom: 14px;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   width: min(92vw, 680px);
   display: grid;
@@ -1000,7 +1000,7 @@ code {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 16px 14px 110px;
+    padding: calc(14px + env(safe-area-inset-top, 0px)) 14px calc(110px + env(safe-area-inset-bottom, 0px));
   }
 
   .topbar,
@@ -1053,6 +1053,6 @@ code {
 
   .bottom-nav {
     width: calc(100vw - 20px);
-    bottom: 10px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 }
