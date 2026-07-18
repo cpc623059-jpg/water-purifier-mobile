@@ -184,17 +184,21 @@ root.innerHTML = `
       <div class="brand-block">
         <div class="brand-head">
           <p class="app-title">净水智控</p>
+          <span class="runtime-pill access-pill" id="topAccess">默认接入</span>
           <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
         </div>
         <div class="brand-bottom">
-          <h1 class="top-state" id="overviewState">待机</h1>
+          <div class="top-copy-block">
+            <h1 class="top-state" id="overviewState">待机</h1>
+            <p class="top-caption" id="topCaption">自动接入</p>
+          </div>
           <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
         </div>
       </div>
     </header>
 
     <section class="status-banner" id="statusLine" data-tone="warn">
-      <strong class="status-text" id="statusText">正在同步</strong>
+      <strong class="status-text" id="statusText">已同步</strong>
     </section>
 
     <main class="app-main">
