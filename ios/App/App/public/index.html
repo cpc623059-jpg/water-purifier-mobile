@@ -6,96 +6,11 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
     />
-    <title>净水智控</title>
-    <style>
-      html, body {
-        margin: 0;
-        min-height: 100%;
-        background:
-          radial-gradient(circle at top left, rgba(84, 199, 236, 0.33), transparent 26%),
-          radial-gradient(circle at top right, rgba(13, 110, 253, 0.22), transparent 20%),
-          linear-gradient(180deg, #eef5ff, #dfeaf6);
-        font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
-        color: #173456;
-      }
-
-      .boot-shell {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        box-sizing: border-box;
-      }
-
-      .boot-card {
-        width: min(100%, 420px);
-        padding: 28px 24px;
-        border-radius: 28px;
-        border: 1px solid rgba(255, 255, 255, 0.52);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.3));
-        box-shadow: 0 20px 44px rgba(28, 54, 86, 0.14);
-        backdrop-filter: blur(28px) saturate(1.45);
-        -webkit-backdrop-filter: blur(28px) saturate(1.45);
-      }
-
-      .boot-title {
-        margin: 0;
-        font-size: 28px;
-        font-weight: 800;
-        letter-spacing: -0.03em;
-      }
-
-      .boot-subtitle {
-        margin: 10px 0 0;
-        color: #4d6788;
-        font-size: 15px;
-        line-height: 1.6;
-      }
-
-      .boot-dots {
-        display: inline-flex;
-        gap: 8px;
-        margin-top: 18px;
-      }
-
-      .boot-dots span {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: linear-gradient(180deg, #4aa9ff, #0d6efd);
-        animation: bootPulse 1.2s ease-in-out infinite;
-      }
-
-      .boot-dots span:nth-child(2) {
-        animation-delay: 0.15s;
-      }
-
-      .boot-dots span:nth-child(3) {
-        animation-delay: 0.3s;
-      }
-
-      @keyframes bootPulse {
-        0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
-        40% { opacity: 1; transform: translateY(-4px); }
-      }
-    </style>
-    <script type="module" crossorigin src="./assets/index-DKlzkvTO.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CvCcSxmE.css">
+    <title>净水器手机控制台</title>
+    <script type="module" crossorigin src="/assets/index-Dy89OHw9.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BjuefopS.css">
   </head>
   <body>
-    <div id="app">
-      <div class="boot-shell">
-        <div class="boot-card">
-          <h1 class="boot-title">净水智控</h1>
-          <p class="boot-subtitle">正在启动设备控制界面</p>
-          <div class="boot-dots" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <div id="app"></div>
   </body>
-</html>
+  </html>

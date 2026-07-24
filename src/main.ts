@@ -115,19 +115,17 @@ interface WifiScanResult {
   list?: Array<{ ssid: string; rssi: number; secure: string }>;
 }
 
-const PRIMARY_BASE_URL = "http://192.168.15.119";
-const FALLBACK_BASE_URLS = [
-  PRIMARY_BASE_URL,
-  "http://ik.cccpc.cc:18080",
-  "http://192.168.4.1",
-];
+interface ConnectionProfile {
+  id: string;
+  name: string;
+  url: string;
+}
+
+const STATIC_BASE_URL = "http://ik.cccpc.cc:18081";
 const STATUS_POLL_MS = 5000;
-const COMMAND_LABELS: Record<string, string> = {
-  make: "手动制水",
-  wash: "手动冲洗",
-  stop: "停止运行",
-  reset: "设备复位",
-};
+const CONNECTION_PROFILES_KEY = "water-purifier.connectionProfiles";
+const ACTIVE_PROFILE_KEY = "water-purifier.activeProfileId";
+const DEFAULT_PROFILE_ID = "default-device";
 const FILTER_NAMES = ["1级 PP棉", "2级 颗粒炭", "3级 烧结炭", "4级 RO膜", "5级 后置炭"];
 const SCREEN_COORD_FIELDS = [
   "ltx",
@@ -159,13 +157,14 @@ const SCREEN_FIELD_LABELS: Record<(typeof SCREEN_COORD_FIELDS)[number], string> 
 };
 
 const appState = {
+  baseUrl: STATIC_BASE_URL,
+  connectionProfiles: [] as ConnectionProfile[],
+  activeProfileId: DEFAULT_PROFILE_ID,
   filters: [] as FilterData[],
   activeFilterIndex: 0,
   wifiHasSavedPassword: false,
   savedWifiSsid: "",
   pollTimer: 0 as number | undefined,
-  activeBaseUrl: "",
-  hasLoadedStatus: false,
 };
 
 const root = document.querySelector<HTMLDivElement>("#app");
@@ -180,121 +179,114 @@ root.innerHTML = `
     <div class="ambient ambient-b"></div>
 
     <header class="topbar compact-topbar">
-      <div class="brand-emblem" aria-hidden="true"></div>
       <div class="brand-block">
-        <div class="brand-head">
-          <p class="app-title">净水智控</p>
-          <span class="runtime-pill access-pill" id="topAccess">默认接入</span>
-          <span class="runtime-pill pending-pill" id="heroNet">待连接</span>
-        </div>
-        <div class="brand-bottom">
-          <div class="top-copy-block">
-            <h1 class="top-state" id="overviewState">待机</h1>
-            <p class="top-caption" id="topCaption">自动接入</p>
-          </div>
-          <button id="syncBtn" class="glass-icon-button icon-only" type="button" aria-label="刷新">↻</button>
-        </div>
+        <h1 class="app-title">净水智控</h1>
+        <p class="top-state" id="overviewState">连接中</p>
+        <p class="page-copy" id="heroAddress">设备地址 · ${STATIC_BASE_URL}</p>
+      </div>
+      <div class="topbar-actions">
+        <span class="runtime-pill" id="heroNet">--</span>
+        <button id="syncBtn" class="glass-icon-button" type="button">刷新</button>
       </div>
     </header>
 
-    <section class="status-banner" id="statusLine" data-tone="warn">
-      <strong class="status-text" id="statusText">已同步</strong>
-    </section>
+    <section class="status-banner" id="statusLine" data-tone="warn">正在同步</section>
 
     <main class="app-main">
       <section class="panel active" id="panel-overview">
-        <section class="hero-card hero-panel">
-          <div class="hero-topline">
-            <span class="hero-chip" id="metricState">待机</span>
-            <span class="hero-chip secondary" id="metricRssi">-- dBm</span>
-          </div>
-
-          <div class="hero-layout">
-            <div class="hero-core">
-              <p class="hero-kicker">纯水品质</p>
-              <h2 class="hero-reading" id="metricTds">-- ppm</h2>
-              <p class="hero-reading-sub" id="metricRawTds">原水 -- ppm</p>
-
-              <div class="hero-mini-row">
-                <article class="hero-mini-card">
-                  <span>当前时间</span>
-                  <strong id="overviewTime">--:--</strong>
-                </article>
-                <article class="hero-mini-card">
-                  <span>纯水判定</span>
-                  <strong id="overviewQuality">--</strong>
-                </article>
-              </div>
-            </div>
-
-            <div class="hero-side-stack">
-              <article class="hero-side-card">
-                <span>剩余时间</span>
-                <strong id="heroRemain">--:--</strong>
-              </article>
-              <article class="hero-side-card accent">
-                <span>水位状态</span>
-                <strong id="overviewWater">--</strong>
-              </article>
-              <article class="hero-side-card">
-                <span>连接方式</span>
-                <strong id="overviewAccess">--</strong>
-              </article>
-            </div>
+        <section class="hero-card">
+          <div class="hero-grid">
+            <article class="hero-metric">
+              <span>当前时间</span>
+              <strong id="overviewTime">--:--</strong>
+            </article>
+            <article class="hero-metric">
+              <span>水位状态</span>
+              <strong id="overviewWater">--</strong>
+            </article>
+            <article class="hero-metric">
+              <span>纯水判定</span>
+              <strong id="overviewQuality">--</strong>
+            </article>
+            <article class="hero-metric">
+              <span>信号强度</span>
+              <strong id="overviewSignal">-- dBm</strong>
+            </article>
           </div>
         </section>
 
-        <section class="glass-card control-panel">
+        <section class="glass-card">
           <div class="section-head">
-            <div>
-              <h3>快捷控制</h3>
-              <p>常用操作</p>
-            </div>
+            <h3>快捷控制</h3>
           </div>
           <div class="action-grid">
             <button class="action-card action-make" data-command="make" type="button">
-              <span class="action-card-icon">▶</span>
               <strong>手动制水</strong>
               <span>开始</span>
             </button>
             <button class="action-card action-wash" data-command="wash" type="button">
-              <span class="action-card-icon">⟳</span>
-              <strong>手动冲洗</strong>
-              <span>执行</span>
+              <strong>手动洗膜</strong>
+              <span>冲洗</span>
             </button>
             <button class="action-card action-stop" data-command="stop" type="button">
-              <span class="action-card-icon">■</span>
-              <strong>停止运行</strong>
+              <strong>停止</strong>
               <span>结束</span>
             </button>
             <button class="action-card action-reset" data-command="reset" type="button">
-              <span class="action-card-icon">↺</span>
               <strong>复位</strong>
               <span>重置</span>
             </button>
           </div>
         </section>
 
-        <section class="glass-card detail-panel">
+        <section class="glass-card">
           <div class="section-head">
-            <h3>运行细节</h3>
+            <h3>实时指标</h3>
           </div>
-          <div class="detail-grid">
-            <article class="detail-card">
-              <span class="metric-label">原水 TDS</span>
-              <strong id="metricRawTdsCard">-- ppm</strong>
+          <div class="stats-grid">
+            <article class="metric-card metric-featured">
+              <span class="metric-label">运行状态</span>
+              <strong id="metricState">--</strong>
             </article>
-            <article class="detail-card">
+            <article class="metric-card metric-featured">
+              <span class="metric-label">水位状态</span>
+              <strong id="metricWater">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">纯水 TDS</span>
+              <strong id="metricTds">-- ppm</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">原水 TDS</span>
+              <strong id="metricRawTds">-- ppm</strong>
+            </article>
+            <article class="metric-card">
               <span class="metric-label">纯水温度</span>
               <strong id="metricTemp">-- °C</strong>
             </article>
-            <article class="detail-card">
+            <article class="metric-card">
               <span class="metric-label">原水温度</span>
               <strong id="metricRawTemp">-- °C</strong>
             </article>
-            <article class="detail-card detail-card-accent">
-              <span class="metric-label">网络状态</span>
+            <article class="metric-card">
+              <span class="metric-label">网络</span>
               <strong id="metricNet">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">当前时间</span>
+              <strong id="metricTime">--:--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">剩余时间</span>
+              <strong id="metricRemain">--:--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">纯水判定</span>
+              <strong id="metricQuality">--</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">信号强度</span>
+              <strong id="metricRssi">-- dBm</strong>
             </article>
           </div>
         </section>
@@ -303,8 +295,7 @@ root.innerHTML = `
       <section class="panel" id="panel-filters">
         <section class="glass-card">
           <div class="section-head">
-            <h3>滤芯管理</h3>
-            <p>更换周期与寿命状态</p>
+            <h3>滤芯</h3>
           </div>
           <div class="filter-list" id="filterList"></div>
           <div class="form-grid">
@@ -333,8 +324,33 @@ root.innerHTML = `
       <section class="panel" id="panel-settings">
         <section class="glass-card">
           <div class="section-head">
+            <div>
+              <h3>设备连接</h3>
+              <p>保存多个设备地址，支持在家里设备、调试机和备机之间快速切换。</p>
+            </div>
+          </div>
+          <p class="status-line compact" id="connectionStatus">正在载入设备配置</p>
+          <div class="form-grid">
+            <label class="field">
+              <span>设备名称</span>
+              <input id="profileName" type="text" placeholder="例如：家里净水器" />
+            </label>
+            <label class="field wide">
+              <span>设备地址</span>
+              <input id="deviceBaseUrl" type="text" placeholder="http://192.168.4.1" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="saveProfileBtn" class="btn ghost" type="button">保存地址</button>
+            <button id="connectProfileBtn" class="btn primary connect-button" type="button">连接当前地址</button>
+            <button id="resetDefaultProfileBtn" class="btn secondary" type="button">使用默认地址</button>
+          </div>
+          <div class="quick-profile-list" id="profileList"></div>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-head">
             <h3>运行参数</h3>
-            <p>运行节奏与阈值设定</p>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -346,7 +362,7 @@ root.innerHTML = `
               <input id="param-dly" type="number" min="0" max="600" step="5" />
             </label>
             <label class="field">
-              <span>冲洗时长</span>
+              <span>洗膜时长</span>
               <input id="param-wsh" type="number" min="0" max="600" step="5" />
             </label>
             <label class="field">
@@ -383,7 +399,6 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>WiFi</h3>
-            <p>无线网络与扫描列表</p>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -406,7 +421,6 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>时间</h3>
-            <p>同步 NTP 或手动指定</p>
           </div>
           <p class="status-line compact" id="timeState">--</p>
           <label class="field">
@@ -422,7 +436,6 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>语音</h3>
-            <p>播报引擎与缓存状态</p>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -468,7 +481,6 @@ root.innerHTML = `
         <section class="glass-card">
           <div class="section-head">
             <h3>屏幕</h3>
-            <p>坐标与开机文案</p>
           </div>
           <div class="form-grid" id="screenFieldGrid"></div>
           <div class="form-grid">
@@ -504,8 +516,7 @@ root.innerHTML = `
       <section class="panel" id="panel-logs">
         <section class="glass-card">
           <div class="section-head logs-head">
-            <h3>运行日志</h3>
-            <p>查看设备最近状态变化</p>
+            <h3>日志</h3>
             <span class="runtime-pill" id="logMeta">日志 0 条</span>
           </div>
           <div class="button-row">
@@ -526,24 +537,14 @@ root.innerHTML = `
   </div>
 `;
 
-window.addEventListener("error", (event) => {
-  renderFatalScreen(describeError(event.error ?? event.message));
-});
-
-window.addEventListener("unhandledrejection", (event) => {
-  renderFatalScreen(describeError(event.reason));
-});
-
-try {
-  renderScreenFields();
-  initializeNetworkTargets();
-  bindTabs();
-  bindActions();
-  bindGlassMotion();
-  syncAll().catch((error) => updateStatusLine(describeError(error), "error"));
-} catch (error) {
-  renderFatalScreen(describeError(error));
-}
+initializeConnectionProfiles();
+renderScreenFields();
+bindTabs();
+bindActions();
+renderConnectionProfiles();
+fillConnectionForm();
+updateConnectionSummary();
+syncAll().catch(handleError);
 
 function bindTabs(): void {
   document.querySelectorAll<HTMLButtonElement>(".tab").forEach((button) => {
@@ -558,20 +559,20 @@ function bindTabs(): void {
 
 function bindActions(): void {
   getButton("syncBtn").addEventListener("click", () => syncAll().catch(handleError));
+  getButton("saveProfileBtn").addEventListener("click", () => saveConnectionProfile().catch(handleError));
+  getButton("connectProfileBtn").addEventListener("click", () => connectCurrentProfile().catch(handleError));
+  getButton("resetDefaultProfileBtn").addEventListener("click", () => resetToDefaultProfile().catch(handleError));
 
   document.querySelectorAll<HTMLButtonElement>("[data-command]").forEach((button) => {
     button.addEventListener("click", async () => {
       const command = button.dataset.command;
       if (!command) return;
       try {
-        const commandLabel = COMMAND_LABELS[command] || command;
-        button.disabled = true;
         await apiRequest("/api/cmd", { query: { c: command }, allowEmpty: true });
-        await refreshStatusAfterCommand();
+        updateStatusLine(`已发送：${command}`, "ok");
+        await loadStatus();
       } catch (error) {
         updateStatusLine(describeError(error), "error");
-      } finally {
-        button.disabled = false;
       }
     });
   });
@@ -596,25 +597,214 @@ function bindActions(): void {
   getButton("clearLogsBtn").addEventListener("click", () => clearLogs().catch(handleError));
 }
 
-function bindGlassMotion(): void {
-  const rootStyle = document.documentElement.style;
-  const updateGlass = (): void => {
-    const y = window.scrollY || 0;
-    const x = Math.sin(y / 90) * 8;
-    const drift = Math.min(y / 260, 1);
-    rootStyle.setProperty("--glass-pan-x", `${x.toFixed(2)}px`);
-    rootStyle.setProperty("--glass-pan-y", `${(y * 0.08).toFixed(2)}px`);
-    rootStyle.setProperty("--glass-drift", drift.toFixed(3));
-    rootStyle.setProperty("--glass-glow-x", `${50 + Math.sin(y / 140) * 10}%`);
-    rootStyle.setProperty("--glass-glow-y", `${18 + Math.cos(y / 180) * 10}%`);
-  };
-  updateGlass();
-  window.addEventListener("scroll", updateGlass, { passive: true });
+function initializeConnectionProfiles(): void {
+  const fallback = [createDefaultProfile()];
+
+  try {
+    const raw = window.localStorage.getItem(CONNECTION_PROFILES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Array<Partial<ConnectionProfile>>) : [];
+    const profiles = parsed
+      .map((item, index) => sanitizeConnectionProfile(item, index))
+      .filter((item): item is ConnectionProfile => Boolean(item));
+
+    appState.connectionProfiles = profiles.length ? profiles : fallback;
+  } catch {
+    appState.connectionProfiles = fallback;
+  }
+
+  const activeProfileId = window.localStorage.getItem(ACTIVE_PROFILE_KEY) || DEFAULT_PROFILE_ID;
+  const activeProfile = appState.connectionProfiles.find((item) => item.id === activeProfileId) || appState.connectionProfiles[0];
+  appState.activeProfileId = activeProfile?.id || DEFAULT_PROFILE_ID;
+  appState.baseUrl = activeProfile?.url || STATIC_BASE_URL;
+  persistConnectionProfiles();
 }
 
-function initializeNetworkTargets(): void {
-  appState.activeBaseUrl = PRIMARY_BASE_URL;
-  applyHeroNetState("待连接", "pending");
+function createDefaultProfile(): ConnectionProfile {
+  return {
+    id: DEFAULT_PROFILE_ID,
+    name: "默认设备",
+    url: STATIC_BASE_URL,
+  };
+}
+
+function sanitizeConnectionProfile(item: Partial<ConnectionProfile>, index: number): ConnectionProfile | null {
+  if (!item.url) return null;
+  try {
+    return {
+      id: item.id || `profile-${index + 1}`,
+      name: (item.name || `设备 ${index + 1}`).trim(),
+      url: normalizeBaseUrl(item.url),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function renderConnectionProfiles(): void {
+  const host = getElement<HTMLDivElement>("profileList");
+  host.innerHTML = appState.connectionProfiles
+    .map((profile) => {
+      const active = profile.id === appState.activeProfileId ? " active" : "";
+      return `
+        <div class="profile-card${active}">
+          <button class="profile-main" type="button" data-profile-id="${escapeAttribute(profile.id)}">
+            <span>${escapeHtml(profile.name)}</span>
+            <strong>${escapeHtml(profile.url)}</strong>
+          </button>
+          <button
+            class="profile-remove"
+            type="button"
+            data-remove-profile-id="${escapeAttribute(profile.id)}"
+            ${profile.id === DEFAULT_PROFILE_ID ? "disabled" : ""}
+          >
+            删除
+          </button>
+        </div>
+      `;
+    })
+    .join("");
+
+  host.querySelectorAll<HTMLButtonElement>("[data-profile-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activateStoredProfile(button.dataset.profileId || "").catch(handleError);
+    });
+  });
+
+  host.querySelectorAll<HTMLButtonElement>("[data-remove-profile-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      removeConnectionProfile(button.dataset.removeProfileId || "");
+    });
+  });
+}
+
+function fillConnectionForm(): void {
+  const activeProfile = getActiveProfile();
+  if (!activeProfile) return;
+  setFieldValue("profileName", activeProfile.name);
+  setFieldValue("deviceBaseUrl", activeProfile.url);
+}
+
+function updateConnectionSummary(): void {
+  const activeProfile = getActiveProfile();
+  const label = activeProfile ? `${activeProfile.name} · ${activeProfile.url}` : `设备地址 · ${appState.baseUrl}`;
+  setText("heroAddress", label);
+  setStatusMessage("connectionStatus", `当前设备：${label}`, "ok");
+}
+
+async function saveConnectionProfile(): Promise<void> {
+  const profile = upsertConnectionProfile(readConnectionForm());
+  persistConnectionProfiles();
+  renderConnectionProfiles();
+  setFieldValue("profileName", profile.name);
+  setFieldValue("deviceBaseUrl", profile.url);
+  setStatusMessage("connectionStatus", `已保存：${profile.name}`, "ok");
+}
+
+async function connectCurrentProfile(): Promise<void> {
+  const profile = upsertConnectionProfile(readConnectionForm());
+  applyActiveProfile(profile);
+  updateConnectionSummary();
+  renderConnectionProfiles();
+  fillConnectionForm();
+  setStatusMessage("connectionStatus", `正在连接：${profile.name}`, "warn");
+  await syncAll();
+}
+
+async function resetToDefaultProfile(): Promise<void> {
+  const profile = appState.connectionProfiles.find((item) => item.id === DEFAULT_PROFILE_ID) || createDefaultProfile();
+  if (!appState.connectionProfiles.some((item) => item.id === DEFAULT_PROFILE_ID)) {
+    appState.connectionProfiles.unshift(profile);
+  }
+  applyActiveProfile(profile);
+  renderConnectionProfiles();
+  fillConnectionForm();
+  updateConnectionSummary();
+  setStatusMessage("connectionStatus", "已切换到默认地址", "warn");
+  await syncAll();
+}
+
+async function activateStoredProfile(profileId: string): Promise<void> {
+  const profile = appState.connectionProfiles.find((item) => item.id === profileId);
+  if (!profile) return;
+  applyActiveProfile(profile);
+  renderConnectionProfiles();
+  fillConnectionForm();
+  updateConnectionSummary();
+  setStatusMessage("connectionStatus", `正在连接：${profile.name}`, "warn");
+  await syncAll();
+}
+
+function removeConnectionProfile(profileId: string): void {
+  if (!profileId || profileId === DEFAULT_PROFILE_ID) return;
+  appState.connectionProfiles = appState.connectionProfiles.filter((item) => item.id !== profileId);
+
+  if (!appState.connectionProfiles.length) {
+    appState.connectionProfiles = [createDefaultProfile()];
+  }
+
+  if (!appState.connectionProfiles.some((item) => item.id === appState.activeProfileId)) {
+    applyActiveProfile(appState.connectionProfiles[0]);
+    fillConnectionForm();
+    updateConnectionSummary();
+  } else {
+    persistConnectionProfiles();
+  }
+
+  renderConnectionProfiles();
+  setStatusMessage("connectionStatus", "设备地址已删除", "ok");
+}
+
+function readConnectionForm(): { name: string; url: string } {
+  const rawName = getFieldValue("profileName").trim();
+  const rawUrl = getFieldValue("deviceBaseUrl").trim();
+  if (!rawUrl) {
+    throw new Error("请输入设备地址");
+  }
+
+  return {
+    name: rawName || `设备 ${appState.connectionProfiles.length + 1}`,
+    url: normalizeBaseUrl(rawUrl),
+  };
+}
+
+function upsertConnectionProfile(input: { name: string; url: string }): ConnectionProfile {
+  const existing = appState.connectionProfiles.find((item) => item.url === input.url);
+  if (existing) {
+    existing.name = input.name;
+    return existing;
+  }
+
+  const profile: ConnectionProfile = {
+    id: `profile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    name: input.name,
+    url: input.url,
+  };
+  appState.connectionProfiles = [profile, ...appState.connectionProfiles];
+  return profile;
+}
+
+function applyActiveProfile(profile: ConnectionProfile): void {
+  appState.activeProfileId = profile.id;
+  appState.baseUrl = profile.url;
+  persistConnectionProfiles();
+}
+
+function persistConnectionProfiles(): void {
+  window.localStorage.setItem(CONNECTION_PROFILES_KEY, JSON.stringify(appState.connectionProfiles));
+  window.localStorage.setItem(ACTIVE_PROFILE_KEY, appState.activeProfileId);
+}
+
+function getActiveProfile(): ConnectionProfile | undefined {
+  return appState.connectionProfiles.find((item) => item.id === appState.activeProfileId);
+}
+
+function normalizeBaseUrl(value: string): string {
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+  const url = new URL(withProtocol);
+  if (!/^https?:$/.test(url.protocol)) {
+    throw new Error("设备地址必须使用 http 或 https");
+  }
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
 }
 
 function renderScreenFields(): void {
@@ -630,29 +820,13 @@ function renderScreenFields(): void {
 }
 
 async function syncAll(): Promise<void> {
-  updateStatusLine("", "ok");
+  updateStatusLine("正在同步", "warn");
+  setStatusMessage("connectionStatus", `正在访问 ${appState.baseUrl}`, "warn");
   await loadStatus();
-  const results = await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
+  await Promise.allSettled([loadParams(), loadFilters(), loadWifi(), loadTime(), loadTts(), loadScreen(), loadLogs()]);
   schedulePolling();
-  const failedCount = results.filter((result) => result.status === "rejected").length;
-  if (failedCount > 0) {
-    updateStatusLine(`部分数据未连通`, "warn");
-    return;
-  }
+  updateConnectionSummary();
   updateStatusLine("", "ok");
-}
-
-async function refreshStatusAfterCommand(): Promise<void> {
-  const delays = [240, 520, 880];
-  for (const delay of delays) {
-    await sleep(delay);
-    try {
-      await loadStatus();
-      return;
-    } catch {
-      continue;
-    }
-  }
 }
 
 function schedulePolling(): void {
@@ -665,41 +839,25 @@ function schedulePolling(): void {
 }
 
 async function loadStatus(): Promise<void> {
-  try {
-    const data = await apiRequest<StatusData>("/api/status");
-    const accessMode = formatAccessMode(data);
-    appState.hasLoadedStatus = true;
-    setText("metricState", data.state || "--");
-    setText("metricNet", data.net || "--");
-    setText("metricTime", data.time || "--:--");
-    setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
-    setText("metricRawTds", `原水 ${formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe)}`);
-    setText("metricRawTdsCard", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
-    setText("metricTemp", formatTempValue(data.tempPure ?? data.temp, data.tempen !== false, data.tempPureProbe));
-    setText("metricRawTemp", formatTempValue(data.tempRaw, data.tempen !== false, data.tempRawProbe));
-    setText("metricWater", data.water || "--");
-    setText("metricRemain", formatDuration(data.rem));
-    setText("metricQuality", formatTdsQuality(data));
-    setText("metricAccess", accessMode);
-    setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
-    setText("overviewState", data.state || "待机");
-    applyHeroNetState(formatOnlineLabel(data), data.net?.includes("离线") ? "offline" : "online");
-    setText("overviewTime", data.time || "--:--");
-    setText("overviewWater", data.water || "--");
-    setText("overviewQuality", formatTdsQuality(data));
-    setText("overviewAccess", accessMode);
-    setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
-    setText("heroRemain", formatDuration(data.rem));
-  } catch (error) {
-    applyHeroNetState("离线", "offline");
-    setText("metricState", "离线");
-    setText("metricNet", "--");
-    setText("metricRssi", "-- dBm");
-    if (!appState.hasLoadedStatus) {
-      setText("overviewState", "未连接");
-    }
-    throw error;
-  }
+  const data = await apiRequest<StatusData>("/api/status");
+  setText("metricState", data.state || "--");
+  setText("metricNet", data.net || "--");
+  setText("metricTime", data.time || "--:--");
+  setText("metricTds", formatTdsValue(data.tdsPure ?? data.tds, data.tdsen !== false, data.tdsPureProbe));
+  setText("metricRawTds", formatTdsValue(data.tdsRaw, data.tdsen !== false, data.tdsRawProbe));
+  setText("metricTemp", formatTempValue(data.tempPure ?? data.temp, data.tempen !== false, data.tempPureProbe));
+  setText("metricRawTemp", formatTempValue(data.tempRaw, data.tempen !== false, data.tempRawProbe));
+  setText("metricWater", data.water || "--");
+  setText("metricRemain", formatDuration(data.rem));
+  setText("metricQuality", formatTdsQuality(data));
+  setText("metricRssi", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
+  setText("overviewState", data.state || "在线");
+  setText("heroNet", data.net || "在线");
+  setText("overviewTime", data.time || "--:--");
+  setText("overviewWater", data.water || "--");
+  setText("overviewQuality", formatTdsQuality(data));
+  setText("overviewSignal", Number.isFinite(data.rssi) ? `${data.rssi} dBm` : "-- dBm");
+  setStatusMessage("connectionStatus", `已连接 ${appState.baseUrl}`, "ok");
 }
 
 async function loadParams(): Promise<void> {
@@ -981,22 +1139,7 @@ async function clearLogs(): Promise<void> {
 }
 
 async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
-  const candidates = resolveBaseUrlCandidates();
-  let lastError: unknown = null;
-  for (const baseUrl of candidates) {
-    try {
-      const result = await requestWithBaseUrl<T>(baseUrl, path, options);
-      appState.activeBaseUrl = baseUrl;
-      return result;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error("请求失败");
-}
-
-async function requestWithBaseUrl<T>(baseUrl: string, path: string, options: RequestOptions = {}): Promise<T> {
-  const url = new URL(path, `${baseUrl}/`);
+  const url = new URL(path, `${appState.baseUrl}/`);
   Object.entries(options.query || {}).forEach(([key, value]) => {
     if (value === null || value === undefined || value === "") return;
     url.searchParams.set(key, String(value));
@@ -1017,9 +1160,11 @@ async function requestWithBaseUrl<T>(baseUrl: string, path: string, options: Req
       method,
       headers: body.size ? { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } : undefined,
       data: body.size ? body.toString() : undefined,
+      // Some device endpoints return HTTP 200 with an empty body.
+      // Always read native responses as text so we can decide locally whether empty is acceptable.
       responseType: "text",
-      readTimeout: 1800,
-      connectTimeout: 1800,
+      readTimeout: 12000,
+      connectTimeout: 12000,
     });
     if (response.status >= 400) {
       throw new Error(`请求失败：HTTP ${response.status}`);
@@ -1028,7 +1173,13 @@ async function requestWithBaseUrl<T>(baseUrl: string, path: string, options: Req
     if (expect === "text") {
       return raw as T;
     }
-    return parseJsonPayload<T>(raw, allowEmpty);
+    if (!raw) {
+      if (allowEmpty) {
+        return undefined as T;
+      }
+      throw new Error("请求失败：空响应");
+    }
+    return JSON.parse(raw) as T;
   }
 
   const response = await fetch(url.toString(), {
@@ -1040,11 +1191,17 @@ async function requestWithBaseUrl<T>(baseUrl: string, path: string, options: Req
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`);
   }
-  const raw = await response.text();
   if (expect === "text") {
-    return raw as T;
+    return (await response.text()) as T;
   }
-  return parseJsonPayload<T>(raw, allowEmpty);
+  const raw = await response.text();
+  if (!raw) {
+    if (allowEmpty) {
+      return undefined as T;
+    }
+    throw new Error("请求失败：空响应");
+  }
+  return JSON.parse(raw) as T;
 }
 
 function formatTdsValue(value: number | undefined, enabled: boolean, probePresent: boolean | undefined): string {
@@ -1077,107 +1234,14 @@ function formatDuration(value: number | undefined): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function formatDeviceAddress(data: StatusData): string {
-  return data.ip?.trim() || getConfiguredGatewayHost();
-}
-
-function formatAccessMode(data: StatusData): string {
-  const ip = data.ip?.trim() || "";
-  if (ip.startsWith("192.168.4.")) return "设备热点";
-  if (/^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[0-1])\\.)/.test(ip)) return "局域网";
-  if (data.net?.includes("WiFi")) return "局域网";
-  return "远程入口";
-}
-
-function formatOnlineLabel(data: StatusData): string {
-  if (data.net?.includes("离线")) return "离线";
-  if (data.net?.includes("在线")) return "在线";
-  return data.ip?.trim() ? "在线" : "待连接";
-}
-
-function formatClock(date: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function getConfiguredGatewayHost(): string {
-  try {
-    return new URL(appState.activeBaseUrl || FALLBACK_BASE_URLS[0]).host;
-  } catch {
-    return appState.activeBaseUrl || FALLBACK_BASE_URLS[0];
-  }
-}
-
-function resolveBaseUrlCandidates(): string[] {
-  const values = [appState.activeBaseUrl, PRIMARY_BASE_URL, ...FALLBACK_BASE_URLS]
-    .map((value) => normalizeBaseUrl(value))
-    .filter(Boolean);
-  return Array.from(new Set(values));
-}
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  const input = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  try {
-    const url = new URL(input);
-    url.pathname = "";
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return "";
-  }
-}
-
-function applyHeroNetState(label: string, tone: "online" | "offline" | "pending"): void {
-  const element = getElement<HTMLElement>("heroNet");
-  element.textContent = label;
-  element.classList.remove("online-pill", "offline-pill", "pending-pill");
-  if (tone === "online") element.classList.add("online-pill");
-  if (tone === "offline") element.classList.add("offline-pill");
-  if (tone === "pending") element.classList.add("pending-pill");
-}
-
-function parseJsonPayload<T>(raw: string, allowEmpty: boolean): T {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    if (allowEmpty) {
-      return undefined as T;
-    }
-    throw new Error("请求失败：空响应");
-  }
-
-  try {
-    return JSON.parse(trimmed) as T;
-  } catch (error) {
-    if (allowEmpty && /^(ok|success|done|queued)$/i.test(trimmed)) {
-      return undefined as T;
-    }
-    throw new Error(`接口返回了非 JSON 文本：${trimmed.slice(0, 80)}`);
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 function updateStatusLine(message: string, tone: Tone = "ok"): void {
   setStatusMessage("statusLine", message, tone);
 }
 
 function setStatusMessage(id: string, message: string, tone: Tone): void {
   const element = getElement<HTMLElement>(id);
-  element.dataset.tone = tone;
-  if (id === "statusLine") {
-    const shouldShow = Boolean(message) && tone !== "ok";
-    setText("statusText", shouldShow ? message : "");
-    element.hidden = !shouldShow;
-    return;
-  }
   element.textContent = message;
+  element.dataset.tone = tone;
 }
 
 function setText(id: string, value: string): void {
@@ -1238,28 +1302,15 @@ function getElement<T extends HTMLElement>(id: string): T {
 }
 
 function handleError(error: unknown): void {
-  updateStatusLine(describeError(error), "error");
+  const message = describeError(error);
+  setText("overviewState", "连接失败");
+  setText("heroNet", "离线");
+  setStatusMessage("connectionStatus", `${message} · ${appState.baseUrl}`, "error");
+  updateStatusLine(message, "error");
 }
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "操作失败";
-}
-
-function renderFatalScreen(message: string): void {
-  root.innerHTML = `
-    <div class="app-shell">
-      <div class="ambient ambient-a"></div>
-      <div class="ambient ambient-b"></div>
-      <section class="hero-card" style="margin-top: 18vh;">
-        <div class="section-head">
-          <h3>净水智控</h3>
-        </div>
-        <div class="status-line" data-tone="error" style="margin-top: 18px;">
-          ${escapeHtml(message || "启动失败")}
-        </div>
-      </section>
-    </div>
-  `;
 }
 
 function escapeHtml(value: string): string {
